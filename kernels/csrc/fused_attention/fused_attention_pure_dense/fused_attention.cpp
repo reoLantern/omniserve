@@ -16,6 +16,8 @@
 #include "update_kv_cache.h"
 #include "decoderMaskedMultiheadAttention.h"
 #include "kvCacheUtils.h"
+#include "../../qsrv_trace.h"
+#include "../../call_logger.h"
 
 #define CHECK_DEVICE(x) TORCH_CHECK(x.device().type() == torch::kCUDA, #x " must be on CUDA")
 #define CHECK_SHAPE(x, ...) TORCH_CHECK(x.sizes() == torch::IntArrayRef({__VA_ARGS__}), #x " must have shape (" #__VA_ARGS__ ")")
@@ -165,11 +167,31 @@ torch::Tensor single_query_attention(const torch::Tensor q,
                                      const bool neox_rotary_style,
                                      const bool int4_kv_cache,
                                      const bool kv_cache_with_zeros) {
+    QSRV_TRACE_HIT("fused_attention_pure_dense", "single_query_attention");
     CHECK_DEVICE(q); CHECK_DEVICE(k); CHECK_DEVICE(v); CHECK_DEVICE(kv_pointers);
     int batch_size = kv_pointers.size(0);
     int nheads = q.size(1);
     int nheads_kv = k.size(1);
     int headdim = k.size(-1);
+
+    QSRV_CALL_BEGIN("fused_attention_pure_dense", "single_query_attention");
+    QSRV_ARG_TENSOR("q", q);
+    QSRV_ARG_TENSOR("k", k);
+    QSRV_ARG_TENSOR("v", v);
+    QSRV_ARG_TENSOR("kv_pointers", kv_pointers);
+    QSRV_ARG_OPT_TENSOR("length_per_sample", length_per_sample_);
+    QSRV_ARG_OPT_TENSOR("alibi_slopes",      alibi_slopes_);
+    QSRV_ARG_I("memory_max_seqlen",          memory_max_seqlen);
+    QSRV_ARG_I("tokens_per_block",           tokens_per_block);
+    QSRV_ARG_I("size_per_token",             size_per_token);
+    QSRV_ARG_I("timestep",                   timestep);
+    QSRV_ARG_I("rotary_embedding_dim",       rotary_embedding_dim);
+    QSRV_ARG_F("rotary_base",                rotary_base);
+    QSRV_ARG_B("neox_rotary_style",          neox_rotary_style);
+    QSRV_ARG_B("int4_kv_cache",              int4_kv_cache);
+    QSRV_ARG_B("kv_cache_with_zeros",        kv_cache_with_zeros);
+    QSRV_CALL_END();
+
     // int max_blocks = kv_pointers.size(-1)
     // CHECK_SHAPE(q, batch_size, nheads, headdim);
     // CHECK_SHAPE(k, batch_size, nheads_kv, headdim);

@@ -11,6 +11,7 @@
 #include "decoderMaskedMultiheadAttentionUtils.h"
 #include "gptKernels.h"
 #include "kvCacheUtils.h"
+#include "../../call_logger.h"
 
 #define WARP_SIZE 32
 #define HALF_WARP_SIZE 16
@@ -462,6 +463,14 @@ __global__ void applyBiasRopeUpdateKVCache(T *QKV, T *Q, KVCacheBuffer kvCacheBu
     dim3 block(WARP_SIZE, tokens_per_block);                                                                                                \
     int blocks_per_sequence = std::min((grid_size + head_num - 1) / head_num, (token_num + tokens_per_block - 1) / tokens_per_block);       \
     dim3 grid(blocks_per_sequence, head_num);                                                                                               \
+    QSRV_LAUNCH_BEGIN(              \
+        "fused_attention_pure_dense",               \
+        "applyBiasRopeUpdateKVCache",               \
+        grid, block, 0, stream);               \
+    QSRV_ARG_I("block_size", block_size);               \
+    QSRV_ARG_I("tokens_per_block",  tokens_per_block);                \
+    QSRV_ARG_I("blocks_per_sequence",  blocks_per_sequence);             \
+    QSRV_LAUNCH_END();              \
     applyBiasRopeUpdateKVCache<T, T_cache, Dh_MAX, ADD_BIAS, STORE_QKV, POS_SHIFT, KVCacheBuffer, IS_GENERATE, INT4KV, KV_CACHE_WITH_ZEROS> \
         <<<grid, block, 0, stream>>>(QKV, Q, kvTable, qkv_bias, seq_lens, kv_seq_lens, padding_offset,                                      \
                                      token_num, batch_size, seq_len, cyclic_kv_cache_len, sink_token_len, head_num,                         \

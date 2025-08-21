@@ -1,0 +1,32 @@
+{
+  "version": 4,
+  "env": {
+    "CUDA_HOME": "/usr/local/cuda",
+    "TORCH_SITE": "~/.conda/envs/OmniServe/lib/python3.10/site-packages/torch",
+    "PYTHON_INCLUDE": "~/.conda/envs/OmniServe/include/python3.10"
+  },
+  "configurations": [
+    {
+      "name": "Linux",
+      "compilerPath": "/usr/bin/g++",
+      "intelliSenseMode": "linux-gcc-x64",
+      "cStandard": "c17",
+      "cppStandard": "c++17",
+
+      "defines": [
+        "ENABLE_BF16",
+        "__CUDACC__",
+        "_GLIBCXX_USE_CXX11_ABI=1"
+      ],
+
+      "includePath": [
+        "${workspaceFolder}/kernels/csrc/**",
+        "/usr/include/**",
+        "${env:CUDA_HOME}/include",
+        "${env:TORCH_SITE}/include",
+        "${env:TORCH_SITE}/include/torch/csrc/api/include",
+        "${env:PYTHON_INCLUDE}"
+      ]
+    }
+  ]
+}

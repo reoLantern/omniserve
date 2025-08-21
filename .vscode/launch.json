@@ -1,0 +1,48 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug qserve_benchmark",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "qserve_benchmark.py",
+      "console": "integratedTerminal",
+      "preLaunchTask": "clear-kernel-dump",
+      "env": {
+        "MODEL_PATH": "./qserve_checkpoints/Llama-3-8B-Instruct-QServe-g128",
+        "QSRV_DUMP_KERNEL_CALLS": "1",
+        "QSRV_DUMP_KERNEL_FILE": "~/work/omniserve/dump/kernel_calls.jsonl",
+        "QSRV_TRACE_PYBIND": "1",
+        "GLOBAL_BATCH_SIZE": "128",
+        "NUM_GPU_PAGE_BLOCKS": "3200", 
+        "NUM_RETRIEVAL_GPU_PAGE_BLOCKS": "3200",
+        "NUM_STREAMING_GPU_PAGE_BLOCKS": "0",
+        "CHUNK_PREFILL_SIZE": "214700000"
+      },
+      "args": [
+        "--model", "./qserve_checkpoints/Llama-3-8B-Instruct-QServe-g128",
+        "--benchmarking",
+        "--precision", "w4a8kv4",
+        "--group-size", "128",
+        "--max-num-seqs", "64",
+        "--kv-quant-granularity", "fine_grained",
+        "--max-num-batched-tokens", "419500",
+        "--chunk-prefill-size", "102400",
+        "--sparse-decode-mode", "0"
+      ]
+    },
+    {
+      "name": "Debug replay",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "tools/qsr_replay.py",
+      "console": "integratedTerminal",
+      "args": [
+        "--jsonl", "~/work/omniserve/dump/kernel_calls.jsonl",
+        "--module", "fused_attention_pure_dense",
+        "--name", "single_query_attention",
+        "--device", "cuda:0"
+      ]
+    },
+  ]
+}

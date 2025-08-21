@@ -5,6 +5,8 @@
 #include "context_pool_kernel.h"
 #include "block_info.h"
 #include "static_switch.h"
+#include "../../../qsrv_trace.h"
+#include "../../../call_logger.h"
 
 template <
     typename T_cache,
@@ -91,6 +93,9 @@ void launch_context_paged_min_max_pool(const Context_pool_params &params, cudaSt
     const int num_m_block = (params.max_seqlen_rounded + kBlockM - 1) / kBlockM;
     dim3 grid(num_m_block, params.b, params.pool_h);
     dim3 block(BLOCK_SIZE);
+    QSRV_LAUNCH_BEGIN_LIGHT("context_pool", "context_min_max_pool_compute",
+                        grid, block, /*smem*/0);
+    QSRV_LAUNCH_END();
     context_min_max_pool_compute<T_cache, KV_WITH_ZEROS, kBlockM, PoolBlock, HeadDim, 32><<<grid, block>>>(params);
 }
 
@@ -153,6 +158,8 @@ void context_paged_min_max_pool(
     const int size_per_retrieval_token,   // default = hidden_size * sizeof(dtype)
     const bool kv_cache_with_zeros
 ){
+    QSRV_TRACE_HIT("fused_attention_sparse_utils", "context_paged_min_max_pool");
+
     TORCH_CHECK(input.dtype() == torch::kFloat16, "context pooling only support fp16 for input");
     // TORCH_CHECK(output_ptrs.dtype() == torch::kInt64, "context pooling only support int32 for output_ptrs");
     TORCH_CHECK(cu_seqlens.dtype() == torch::kInt32, "context pooling only support int32 for cu_seqlens");
@@ -173,6 +180,23 @@ void context_paged_min_max_pool(
     const int num_input_heads = input.sizes()[1];
     const int num_pooling_heads = pooling_heads_idx.numel();
     const int max_seqlen_rounded = int((max_seqlen + pooling_size - 1) / pooling_size) * pooling_size;
+
+    QSRV_CALL_BEGIN("context_pool", "context_paged_min_max_pool");
+    QSRV_ARG_TENSOR("input", input);
+    QSRV_ARG_OPT_TENSOR("retrieval_kv_ptrs", _retrieval_kv_pointers);
+    QSRV_ARG_TENSOR("cu_seqlens", cu_seqlens);
+    QSRV_ARG_TENSOR("pooling_heads_idx", pooling_heads_idx);
+    QSRV_ARG_I("max_seqlen", max_seqlen);
+    QSRV_ARG_I("pooling_size", pooling_size);
+    QSRV_ARG_I("page_size", page_size);
+    QSRV_ARG_I("size_per_retrieval_token", size_per_retrieval_token);
+    QSRV_ARG_I("batch_size", batch_size);
+    QSRV_ARG_I("head_size", head_size);
+    QSRV_ARG_I("num_input_heads", num_input_heads);
+    QSRV_ARG_I("num_pooling_heads", num_pooling_heads);
+    QSRV_ARG_I("max_seqlen_rounded", max_seqlen_rounded);
+    QSRV_ARG_B("kv_cache_with_zeros", kv_cache_with_zeros);
+    QSRV_CALL_END();
 
     int retrieval_max_blocks_per_seq = 0;
     if (_retrieval_kv_pointers.has_value()) {

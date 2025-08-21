@@ -45,6 +45,7 @@ from omniserve.worker.cache_engine import CacheEngine
 
 from omniserve.modeling.layers.ctx_attn.ctx_attn_init import init_ctx_sparse_attn, init_sparse_kv_cache
 from omniserve.modeling.layers.ctx_attn.block_table_utils import pad_block_tables, get_layer_block_tables, _make_tensor_with_pad
+from omniserve.utils.stage_trace import span, emit
 
 logger = init_logger(__name__)
 
@@ -582,8 +583,22 @@ class ModelRunner:
             max_streaming_block_table_len,
             layer_kv_scales=layer_kv_scales,
         )
+        is_prefill = bool(input_metadata.is_prompt)
+        meta = {
+            # "batch_size": int(input_metadata.batched_seq_len),
+            "max_seq_len": int(input_metadata.max_seq_len),
+            "is_prefill": is_prefill,
+            "layer_cnt": self.num_layers,
+        }
+        # decode 的 token 步，可以用 max_seq_len 近似当前 timestep
+        if not is_prefill:
+            meta["timestep"] = int(input_metadata.max_seq_len)
+
         model = self.model
         # return None
-        output = model(input_tokens, input_metadata)
-        tokens = model.sample(input_tokens, output, input_metadata, sampling_params)
+        with span("prefill" if is_prefill else "decode", meta):
+            output = model(input_tokens, input_metadata)
+            emit({"event": "sample_begin", **meta})
+            tokens = model.sample(input_tokens, output, input_metadata, sampling_params)
+            emit({"event": "sample_end", **meta})
         return tokens

@@ -15,6 +15,8 @@
 #include <cuda_fp16.h>
 #include <cuda_pipeline_primitives.h>
 #include <torch/extension.h>
+#include "../../qsrv_trace.h"
+#include "../../call_logger.h"
 
 #define OP_M 16
 #define OP_N 8
@@ -55,6 +57,9 @@
       dense_kernel0<CTA_M, CTA_N, CTA_K, WARP_M, WARP_N, WARP_K, STAGES, G>;                                 \
   cudaFuncSetAttribute(kernel_func, cudaFuncAttributeMaxDynamicSharedMemorySize,                             \
                        kSmemByteSize);                                                                       \
+  QSRV_LAUNCH_BEGIN_LIGHT("qgemm_w4a8_per_chn", "dense_kernel0",                                        \
+                    num_blocks, threads_per_block, /*smem*/kSmemByteSize);                                \
+  QSRV_LAUNCH_END();                                                                        \
   kernel_func<<<num_blocks, threads_per_block, kSmemByteSize>>>(                                             \
       in_feats, kernel, wscales, ascales, w_szs, a_ssums, out_feats, num_in_feats, num_out_channels,       \
        num_in_channels);
@@ -606,6 +611,7 @@ void gemm_forward_cuda(torch::Tensor _in_feats,
                         torch::Tensor _a_ssums,
                         torch::Tensor _out_feats)
 {
+  QSRV_TRACE_HIT("qgemm_w4a8_per_chn", "gemm_forward_cuda");
   int num_in_feats = _in_feats.size(0);
   int num_in_channels = _in_feats.size(1);
   auto in_feats = reinterpret_cast<int8_t *>(_in_feats.data_ptr<int8_t>());
@@ -617,6 +623,19 @@ void gemm_forward_cuda(torch::Tensor _in_feats,
   int num_out_feats = _out_feats.size(-2);
   int num_out_channels = _out_feats.size(-1);
   auto out_feats = reinterpret_cast<half *>(_out_feats.data_ptr<at::Half>());
+  QSRV_CALL_BEGIN("qgemm_w4a8_per_chn", "gemm_forward_cuda");
+  QSRV_ARG_TENSOR("_in_feats", _in_feats);
+  QSRV_ARG_TENSOR("_kernel", _kernel);
+  QSRV_ARG_TENSOR("_wscales",      _wscales);
+  QSRV_ARG_TENSOR("_ascales",      _ascales);
+  QSRV_ARG_TENSOR("_w_szs", _w_szs);
+  QSRV_ARG_TENSOR("_a_ssums", _a_ssums);
+  QSRV_ARG_TENSOR("_out_feats",    _out_feats);
+  QSRV_ARG_I("num_in_feats",          num_in_feats);
+  QSRV_ARG_I("num_in_channels",          num_in_channels);
+  QSRV_ARG_I("num_out_feats",          num_out_feats);
+  QSRV_ARG_I("num_out_channels",          num_out_channels);
+  QSRV_CALL_END();
 
   constexpr int G = 128;
 

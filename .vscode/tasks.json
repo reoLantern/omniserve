@@ -1,0 +1,10 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "clear-kernel-dump",
+      "type": "shell",
+      "command": "rm -f ~/work/omniserve/dump/kernel_calls.jsonl"
+    }
+  ]
+}

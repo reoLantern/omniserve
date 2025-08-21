@@ -58,6 +58,7 @@ from omniserve.modeling.layers.decoding_attention import DecodingAttentionWrappe
 from torch.cuda import nvtx
 import os
 from omniserve.config import ModelConfig
+from omniserve.utils.stage_trace import span, emit
 
 max_seq_len = omniserve.utils.constants.max_seq_len
 
@@ -477,6 +478,7 @@ class LlamaModel(nn.Module):
         with torch.no_grad():
             hidden_states = self.embed_tokens(input_ids)
             for i in range(len(self.layers)):
+                emit({"event": "executing layer", "layer": i})
                 layer = self.layers[i]
                 hidden_states = layer(
                     hidden_states,

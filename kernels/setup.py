@@ -366,6 +366,10 @@ def get_requirements() -> List[str]:
         requirements = f.read().strip().split("\n")
     return requirements
 
+ext_filter = os.environ.get("BUILD_EXT")
+if ext_filter:
+    filters = ext_filter.split(",")
+    ext_modules = [m for m in ext_modules if any(m.name.endswith(f) for f in filters)]
 
 setuptools.setup(
     name="omniserve_backend",
@@ -390,5 +394,6 @@ setuptools.setup(
     #install_requires=get_requirements(),
     ext_modules=ext_modules,
     cmdclass={"build_ext": BuildExtension},
+    # cmdclass={"build_ext": BuildExtension.with_options(use_ninja=False)},
     #package_data={"tiychat_serve": ["py.typed"]},
 )

@@ -17,6 +17,8 @@
 #include "dispatch_utils.h"
 #include "utils.cuh"
 #include "reduction_utils.cuh"
+#include "qsrv_trace.h"
+#include "call_logger.h"
 
 
 namespace vllm {
@@ -411,11 +413,23 @@ void rms_norm(torch::Tensor &out,    // [..., hidden_size]
               torch::Tensor &weight, // [hidden_size]
               float epsilon,
               bool use_quant) {
+  QSRV_TRACE_HIT("layernorm", "rms_norm");
   int hidden_size = input.size(-1);
   int num_tokens = input.numel() / hidden_size;
+  QSRV_CALL_BEGIN("layernorm", "rms_norm");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_ARG_TENSOR("weight", weight);
+  QSRV_ARG_B("use_quant",          use_quant);
+  QSRV_ARG_I("hidden_size", hidden_size);
+  QSRV_ARG_I("num_tokens", num_tokens);
+  QSRV_CALL_END();
   dim3 grid(num_tokens);
   dim3 block(std::min(hidden_size, 1024));
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  QSRV_LAUNCH_BEGIN("layernorm", "rms_norm_kernel",
+                    grid, block, /*smem*/0, stream);
+  QSRV_LAUNCH_END();
   VLLM_DISPATCH_FLOATING_TYPES(input.scalar_type(), "rms_norm_kernel", [&] {
     if (use_quant) {
       vllm::rms_norm_kernel<scalar_t, int8_t, true><<<grid, block, 0, stream>>>(
@@ -435,13 +449,26 @@ void rms_norm_general(torch::Tensor &out,    // [..., hidden_size]
               torch::Tensor &scaling, // [tokens] or [1]
               float epsilon,
               bool use_per_token_quant) {
+  QSRV_TRACE_HIT("layernorm", "rms_norm_general");
   int hidden_size = input.size(-1);
   int num_tokens = input.numel() / hidden_size;
+  QSRV_CALL_BEGIN("layernorm", "rms_norm_general");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_ARG_TENSOR("weight", weight);
+  QSRV_ARG_TENSOR("scaling", scaling);
+  QSRV_ARG_B("use_per_token_quant",          use_per_token_quant);
+  QSRV_ARG_I("hidden_size", hidden_size);
+  QSRV_ARG_I("num_tokens", num_tokens);
+  QSRV_CALL_END();
   dim3 grid(num_tokens);
   dim3 block(std::min(hidden_size, 1024));
   block.x = 32 * ((block.x + 31) / 32);
   
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  QSRV_LAUNCH_BEGIN("layernorm", "generalLayerNorm",
+                    grid, block, /*smem*/0, stream);
+  QSRV_LAUNCH_END();
   VLLM_DISPATCH_FLOATING_TYPES(input.scalar_type(), "generalLayerNorm", [&] {
     using T = typename FloatTypeConverter<scalar_t>::Type;
     if (use_per_token_quant) {
@@ -475,13 +502,27 @@ void rms_norm_general_fuse_sum(torch::Tensor &out,    // [..., hidden_size]
               torch::Tensor &scaling, // [tokens] or [1]
               float epsilon,
               bool use_per_token_quant) {
+  QSRV_TRACE_HIT("layernorm", "rms_norm_general_fuse_sum");
   int hidden_size = input.size(-1);
   int num_tokens = input.numel() / hidden_size;
+  QSRV_CALL_BEGIN("layernorm", "rms_norm_general_fuse_sum");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_ARG_TENSOR("weight", weight);
+  QSRV_ARG_TENSOR("input_sum", input_sum);
+  QSRV_ARG_TENSOR("scaling", scaling);
+  QSRV_ARG_B("use_per_token_quant",          use_per_token_quant);
+  QSRV_ARG_I("hidden_size", hidden_size);
+  QSRV_ARG_I("num_tokens", num_tokens);
+  QSRV_CALL_END();
   dim3 grid(num_tokens);
   dim3 block(std::min(hidden_size, 1024));
   block.x = 32 * ((block.x + 31) / 32);
   
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  QSRV_LAUNCH_BEGIN("layernorm", "generalLayerNorm_fuse_sum",
+                    grid, block, /*smem*/0, stream);
+  QSRV_LAUNCH_END();
   VLLM_DISPATCH_FLOATING_TYPES(input.scalar_type(), "generalLayerNorm_fuse_sum", [&] {
     using T = typename FloatTypeConverter<scalar_t>::Type;
     if (use_per_token_quant) {
@@ -521,11 +562,23 @@ void invoke_dequant_add_residual_rms_norm_quant(
     torch::Tensor &gamma,    // [hidden_size]
     at::Half scale,
     float epsilon) {
+  QSRV_TRACE_HIT("layernorm", "dequant_add_residual_rms_norm_quant");
   int hidden_size = input.size(-1);
   int num_tokens = input.numel() / hidden_size;
+  QSRV_CALL_BEGIN("layernorm", "dequant_add_residual_rms_norm_quant");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_ARG_TENSOR("residual", residual);
+  QSRV_ARG_TENSOR("gamma", gamma);
+  QSRV_ARG_I("hidden_size", hidden_size);
+  QSRV_ARG_I("num_tokens", num_tokens);
+  QSRV_CALL_END();
   dim3 grid(num_tokens);
   dim3 block(std::min(hidden_size, 1024));
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  QSRV_LAUNCH_BEGIN("layernorm", "dequant_add_residual_rms_norm_quant_kernel",
+                    grid, block, /*smem*/0, stream);
+  QSRV_LAUNCH_END();
   VLLM_DISPATCH_FLOATING_TYPES(
       residual.scalar_type(), "dequant_add_residual_rms_norm_quant_kernel",
       [&] {
@@ -544,13 +597,26 @@ void invoke_dequant_add_residual_rms_norm_quant(
     torch::Tensor &gamma,    // [hidden_size]
     torch::Tensor &scale,    // [num_tokens]
     float epsilon) {
+  QSRV_TRACE_HIT("layernorm", "dequant_add_residual_rms_norm_quant_v2");
   int hidden_size = input.size(-1);
   int num_tokens = input.numel() / hidden_size;
+  QSRV_CALL_BEGIN("layernorm", "dequant_add_residual_rms_norm_quant_v2");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_ARG_TENSOR("residual", residual);
+  QSRV_ARG_TENSOR("gamma", gamma);
+  QSRV_ARG_TENSOR("scale", scale);
+  QSRV_ARG_I("hidden_size", hidden_size);
+  QSRV_ARG_I("num_tokens", num_tokens);
+  QSRV_CALL_END();
 
   dim3 grid(num_tokens);
   dim3 block(std::min(hidden_size, 1024));
 
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  QSRV_LAUNCH_BEGIN("layernorm", "dequant_add_residual_rms_norm_quant_kernel",
+                    grid, block, /*smem*/0, stream);
+  QSRV_LAUNCH_END();
   VLLM_DISPATCH_FLOATING_TYPES(
       residual.scalar_type(), "dequant_add_residual_rms_norm_quant_kernel",
       [&] {

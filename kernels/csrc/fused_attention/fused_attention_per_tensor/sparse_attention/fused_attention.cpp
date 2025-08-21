@@ -21,6 +21,8 @@
 #include "../per_tensor_common/update_kv_cache.h"
 #include "fused_attention.h"
 #include "decoderMaskedMultiheadAttention.h"
+#include "../../../qsrv_trace.h"
+#include "../../../call_logger.h"
 
 #define CHECK_DEVICE(x) TORCH_CHECK(x.device().type() == torch::kCUDA, #x " must be on CUDA")
 #define CHECK_SHAPE(x, ...) TORCH_CHECK(x.sizes() == torch::IntArrayRef({__VA_ARGS__}), #x " must have shape (" #__VA_ARGS__ ")")
@@ -224,11 +226,47 @@ torch::Tensor single_query_attention(const torch::Tensor q,
                                      const int hidden_dim_per_retrieval_token,
                                     //  const int dynamic_sparse_n_indicator_per_sub_chunk,
                                      const int multiblock_switch) {  
+    QSRV_TRACE_HIT("fused_attention_per_tensor_sparse", "single_query_attention");
     CHECK_DEVICE(q); CHECK_DEVICE(k); CHECK_DEVICE(v); //CHECK_DEVICE(kv_pointers);
     int batch_size = q.size(0);
     int nheads = q.size(1);
     int nheads_kv = k.size(1);
     int headdim = k.size(-1);
+
+    QSRV_CALL_BEGIN("fused_attention_per_tensor_dense", "single_query_attention");
+    QSRV_ARG_TENSOR("q", q);
+    QSRV_ARG_TENSOR("k", k);
+    QSRV_ARG_TENSOR("v", v);
+    QSRV_ARG_OPT_TENSOR("kv_scale_quant_orig", kv_scale_quant_orig_);
+    QSRV_ARG_OPT_TENSOR("kv_scale_orig_quant", kv_scale_orig_quant_);
+    QSRV_ARG_OPT_TENSOR("retrieval_kv_ptrs",   _retrieval_kv_pointers);
+    QSRV_ARG_OPT_TENSOR("streaming_kv_ptrs",   _streaming_kv_pointers);
+    QSRV_ARG_TENSOR("retrieval_head_flags", retrieval_head_flags);
+    QSRV_ARG_TENSOR("head_rank_table",      head_rank_table);
+    QSRV_ARG_OPT_TENSOR("length_per_sample", length_per_sample_);
+    QSRV_ARG_OPT_TENSOR("alibi_slopes",      alibi_slopes_);
+    QSRV_ARG_I("memory_max_seqlen",          memory_max_seqlen);
+    QSRV_ARG_I("tokens_per_block",           tokens_per_block);
+    QSRV_ARG_I("size_per_retrieval_token",   size_per_retrieval_token);
+    QSRV_ARG_I("size_per_streaming_token",   size_per_streaming_token);
+    QSRV_ARG_I("sink_token_num",             sink_token_num);
+    QSRV_ARG_I("local_token_num",            local_token_num);
+    QSRV_ARG_I("sink_block_num",             sink_block_num);
+    QSRV_ARG_I("local_block_num",            local_block_num);
+    QSRV_ARG_I("num_retrieval_kv_heads",     num_retrieval_kv_heads);
+    QSRV_ARG_I("num_streaming_kv_heads",     num_streaming_kv_heads);
+    QSRV_ARG_I("timestep",                   timestep);
+    QSRV_ARG_I("rotary_embedding_dim",       rotary_embedding_dim);
+    QSRV_ARG_F("rotary_base",                rotary_base);
+    QSRV_ARG_F("rotary_embedding_scale",     rotary_embedding_scale);
+    QSRV_ARG_B("neox_rotary_style",          neox_rotary_style);
+    QSRV_ARG_B("int4_kv_cache",              int4_kv_cache);
+    QSRV_ARG_B("kv_cache_with_zeros",        kv_cache_with_zeros);
+    QSRV_ARG_I("multiblock_switch",          multiblock_switch);
+    QSRV_ARG_OPT_TENSOR("dynamic_sparse_page_idxes", dynamic_sparse_page_idxes_);
+    QSRV_ARG_I("tokens_per_sub_chunk",               tokens_per_sub_chunk);
+    QSRV_ARG_I("hidden_dim_per_retrieval_token",     hidden_dim_per_retrieval_token);
+    QSRV_CALL_END();
 
     // int max_blocks = kv_pointers.size(-1)
     // CHECK_SHAPE(q, batch_size, nheads, headdim);

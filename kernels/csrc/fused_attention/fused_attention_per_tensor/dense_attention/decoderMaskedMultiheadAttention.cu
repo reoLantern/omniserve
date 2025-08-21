@@ -33,6 +33,7 @@
 #include <float.h>
 #include <type_traits>
 #include "decoderMaskedMultiheadAttentionTemplate.hpp"
+#include "../../../call_logger.h"
 
 namespace mmha
 {
@@ -95,6 +96,25 @@ inline size_t multi_block_grid_setup(const Multihead_attention_params<T>& params
                  DO_MULTI_BLOCK, INT4KV, KV_WITH_ZEROS, SMEM_PRELOAD>,                                                 \
             cudaFuncAttributeMaxDynamicSharedMemorySize, dynamic_smem_sz);                                             \
     }                                                                                                                  \
+    QSRV_LAUNCH_BEGIN(              \
+        "fused_attention_per_tensor",               \
+        "masked_multihead_attention_compute",               \
+        grid, dim3(DYNAMIC_THDS_PER_BLOCK,1,1), dynamic_smem_sz, stream);               \
+    QSRV_ARG_I("Dh", Dh);               \
+    QSRV_ARG_B("DO_MULTI_BLOCK", DO_MULTI_BLOCK);               \
+    QSRV_ARG_B("INT4KV",        INT4KV);                \
+    QSRV_ARG_B("KV_WITH_ZEROS", KV_WITH_ZEROS);             \
+    QSRV_ARG_B("SMEM_PRELOAD",  SMEM_PRELOAD);              \
+    QSRV_ARG_S("T",       ::qsrvlog::type_name<T>());               \
+    QSRV_ARG_S("T_cache", ::qsrvlog::type_name<T_cache>());             \
+    QSRV_ARG_I("B",  params.batch_size);                \
+    QSRV_ARG_I("H",  params.num_heads);             \
+    QSRV_ARG_I("H_kv", params.num_kv_heads);                \
+    QSRV_ARG_I("Dh_rt", params.hidden_size_per_head);               \
+    QSRV_ARG_I("timestep", params.timestep);                \
+    QSRV_ARG_I("seq_len_tile", params.seq_len_tile);                \
+    QSRV_ARG_I("timesteps_per_block", params.timesteps_per_block);              \
+    QSRV_LAUNCH_END();              \
     mmha::masked_multihead_attention_compute<T, T_cache, RetrievalKVCacheBuffer, StreamingKVCacheBuffer, Dh, DYNAMIC_THDS_PER_BLOCK,          \
          DO_MULTI_BLOCK, INT4KV, KV_WITH_ZEROS, SMEM_PRELOAD>                                                          \
         <<<grid, DYNAMIC_THDS_PER_BLOCK, dynamic_smem_sz, stream>>>(params, retrieval_kv_buffer, streaming_kv_buffer);

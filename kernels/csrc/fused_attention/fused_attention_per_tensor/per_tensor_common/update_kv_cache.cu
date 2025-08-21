@@ -16,6 +16,8 @@
 #include <c10/cuda/CUDAGuard.h>
 
 #include "applyBiasRopeUpdateKVCache.h"
+#include "../../../qsrv_trace.h"
+#include "../../../call_logger.h"
 
 INSTANTIATE_ADDFUSEDQKVBIAS_TRANSPOSE(half, KVBlockArray<false>, KVBlockArray<true>, true);
 INSTANTIATE_ADDFUSEDQKVBIAS_TRANSPOSE(half, KVBlockArray<false>, KVBlockArray<true>, false);
@@ -56,6 +58,37 @@ void apply_bias_rope_update_kv_cache(const torch::Tensor qkv,
                                      const bool kv_cache_with_zeros
                                      )
 {
+    QSRV_TRACE_HIT("fused_attention_per_tensor", "apply_bias_rope_update_kv_cache");
+
+    QSRV_CALL_BEGIN("fused_attention_per_tensor", "apply_bias_rope_update_kv_cache");
+    QSRV_ARG_TENSOR("qkv", qkv);
+    QSRV_ARG_TENSOR("kv_scale_orig_quant", kv_scale_orig_quant);
+    QSRV_ARG_TENSOR("retrieval_seq_lens", retrieval_seq_lens);
+    QSRV_ARG_OPT_TENSOR("streaming_seq_lens",      streaming_seq_lens);
+    QSRV_ARG_OPT_TENSOR("retrieval_kv_pointers",   retrieval_kv_pointers);
+    QSRV_ARG_OPT_TENSOR("streaming_kv_pointers",   streaming_kv_pointers);
+    QSRV_ARG_TENSOR("retrieval_head_flags", retrieval_head_flags);
+    QSRV_ARG_TENSOR("head_rank_table",      head_rank_table);
+    QSRV_ARG_I("head_num",                  head_num);
+    QSRV_ARG_I("kv_head_num",               kv_head_num);
+    QSRV_ARG_I("seq_len",                   seq_len);
+    QSRV_ARG_I("tokens_per_block",          tokens_per_block);
+    QSRV_ARG_I("size_per_retrieval_token",  size_per_retrieval_token);
+    QSRV_ARG_I("size_per_streaming_token",  size_per_streaming_token);
+    QSRV_ARG_I("sink_token_num",            sink_token_num);
+    QSRV_ARG_I("local_token_num",           local_token_num);
+    QSRV_ARG_I("sink_block_num",            sink_block_num);
+    QSRV_ARG_I("local_block_num",           local_block_num);
+    QSRV_ARG_I("num_retrieval_kv_heads",    num_retrieval_kv_heads);
+    QSRV_ARG_I("num_streaming_kv_heads",    num_streaming_kv_heads);
+    QSRV_ARG_I("rotary_embedding_dim",      rotary_embedding_dim);
+    QSRV_ARG_F("rotary_embedding_base",     rotary_embedding_base);
+    QSRV_ARG_F("rotary_embedding_scale",    rotary_embedding_scale);
+    QSRV_ARG_I("rotary_embedding_max_positions", rotary_embedding_max_positions);
+    QSRV_ARG_B("neox_rotary_style",         neox_rotary_style);
+    QSRV_ARG_B("int4_kv_cache",             int4_kv_cache);
+    QSRV_ARG_B("kv_cache_with_zeros",       kv_cache_with_zeros);
+    QSRV_CALL_END();    
     half *q_ptr = nullptr;
     half *qkv_ptr = reinterpret_cast<half *>(qkv.data_ptr<at::Half>());
     int *retrieval_seq_lens_ptr = retrieval_seq_lens.data_ptr<int>();

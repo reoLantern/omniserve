@@ -5,6 +5,7 @@ from block_sparse_attn import (
     block_streaming_attn_func,
     flash_attn_varlen_func
 )
+from omniserve.utils.stage_trace import span, emit
 
 def attention_wrapper(
     q_unpad, k_unpad, v_unpad,
@@ -36,6 +37,7 @@ def dense_context_attn(
     max_seqlen_q, max_seqlen_k,
     dropout_p, causal
 ):
+    emit({"event": "flash_attn_varlen_func called"})
     attn_output = flash_attn_varlen_func(
                 q_unpad, k_unpad, v_unpad,
                 cu_seqlens_q, cu_seqlens_k,
