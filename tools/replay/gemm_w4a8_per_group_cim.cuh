@@ -1,22 +1,5 @@
-// Implemented by Haotian Tang and Shang Yang.
-// @article{lin2024qserve,
-//   title={QServe: W4A8KV4 Quantization and System Co-design for Efficient LLM Serving},
-//   author={Lin*, Yujun and Tang*, Haotian and Yang*, Shang and Zhang, Zhekai and Xiao, Guangxuan and Gan, Chuang and Han, Song},
-//   journal={arXiv preprint arXiv:2405.04532},
-//   year={2024}
-// }
-// @article{yang2025lserve,
-//   title={LServe: Efficient Long-sequence LLM Serving with Unified Sparse Attention},
-//   author={Yang*, Shang and Guo*, Junxian and Tang, Haotian and Hu, Qinghao and Xiao, Guangxuan and Tang, Jiaming and Lin, Yujun and Liu, Zhijian and Lu, Yao and Han, Song},
-//   year={2025}
-// }
-
-#include "gemm_cuda.h"
 #include <cuda_fp16.h>
 #include <cuda_pipeline_primitives.h>
-#include <torch/extension.h>
-#include "../../qsrv_trace.h"
-#include "../../call_logger.h"
 
 #define OP_M 16
 #define OP_N 8
@@ -57,39 +40,6 @@
       dense_kernel0<CTA_M, CTA_N, CTA_K, WARP_M, WARP_N, WARP_K, STAGES, G>;                                 \
   cudaFuncSetAttribute(kernel_func, cudaFuncAttributeMaxDynamicSharedMemorySize,                             \
                        kSmemByteSize);                                                                       \
-  QSRV_LAUNCH_BEGIN_LIGHT("qgemm_w4a8_per_group", "dense_kernel0",                                        \
-                    num_blocks, threads_per_block, /*smem*/kSmemByteSize);                                \
-  QSRV_ARG_I("CTA_M", CTA_M);                                                                              \
-  QSRV_ARG_I("CTA_N", CTA_N);                                                                              \
-  QSRV_ARG_I("CTA_K", CTA_K);                                                                              \
-  QSRV_ARG_I("WARP_M", WARP_M);                                                                            \
-  QSRV_ARG_I("WARP_N", WARP_N);                                                                            \
-  QSRV_ARG_I("WARP_K", WARP_K);                                                                            \
-  QSRV_ARG_I("STAGES", STAGES);                                                                            \
-  QSRV_ARG_I("G", G);                                                                                      \
-  QSRV_ARG_I("SLICES", (CTA_K / WARP_K));                                                                  \
-  /* intrinsic/pack constants (compile-time) */                                                            \
-  QSRV_ARG_I("INTRIN_M", INTRIN_M);                                                                        \
-  QSRV_ARG_I("INTRIN_N", INTRIN_N);                                                                        \
-  QSRV_ARG_I("INTRIN_K", INTRIN_K);                                                                        \
-  QSRV_ARG_I("OP_M", OP_M);                                                                                \
-  QSRV_ARG_I("OP_N", OP_N);                                                                                \
-  QSRV_ARG_I("OP_K", OP_K);                                                                                \
-  QSRV_ARG_I("PACK_SIZE", PACK_SIZE);                                                                      \
-  /* problem sizes passed to kernel */                                                                      \
-  QSRV_ARG_I("M", num_in_feats);                                                                           \
-  QSRV_ARG_I("N", num_out_channels);                                                                        \
-  QSRV_ARG_I("K", num_in_channels);                                                                         \
-  QSRV_ARG_I("log_tile", log_tile);                                                                        \
-  /* raw pointers + computed buffer sizes (bytes) under W4A8 layout */                                     \
-  QSRV_ARG_PTR_SIZE("in_feats_ptr",  in_feats,   (uint64_t)num_in_feats * (uint64_t)num_in_channels * sizeof(int8_t)); \
-  QSRV_ARG_PTR_SIZE("kernel_ptr",    kernel,     (uint64_t)num_out_channels * (uint64_t)(num_in_channels/2) * sizeof(int8_t)); \
-  QSRV_ARG_PTR_SIZE("zeros_ptr",     zeros,      (uint64_t)(num_in_channels/ G) * (uint64_t)num_out_channels * sizeof(int8_t)); \
-  QSRV_ARG_PTR_SIZE("scales_i8_ptr", scales_i8,  (uint64_t)(num_in_channels/ G) * (uint64_t)num_out_channels * sizeof(int8_t)); \
-  QSRV_ARG_PTR_SIZE("wscales_ptr",   wscales,    (uint64_t)num_out_channels * sizeof(half));               \
-  QSRV_ARG_PTR_SIZE("ascales_ptr",   ascales,    (uint64_t)num_in_feats   * sizeof(half));                 \
-  QSRV_ARG_PTR_SIZE("out_feats_ptr", out_feats,  (uint64_t)num_in_feats * (uint64_t)num_out_channels * sizeof(half)); \
-  QSRV_LAUNCH_END();                                                                        \
   kernel_func<<<num_blocks, threads_per_block, kSmemByteSize>>>(                                             \
       in_feats, kernel, zeros, scales_i8, wscales, ascales, out_feats, num_in_feats, num_out_channels,       \
       num_in_channels);
@@ -665,92 +615,4 @@ __global__ void dense_kernel0(int8_t *__restrict__ A, int8_t *__restrict__ B,
       }
     }
   }
-}
-
-void gemm_forward_cuda(torch::Tensor _in_feats,
-                        torch::Tensor _kernel,
-                        torch::Tensor _zeros,
-                        torch::Tensor _scales_i8,
-                        torch::Tensor _wscales,
-                        torch::Tensor _ascales,
-                        torch::Tensor _out_feats)
-{
-  QSRV_TRACE_HIT("qgemm_w4a8_per_group", "gemm_forward_cuda");
-  int num_in_feats = _in_feats.size(0);
-  int num_in_channels = _in_feats.size(1);
-  auto in_feats = reinterpret_cast<int8_t *>(_in_feats.data_ptr<int8_t>());
-  auto kernel = reinterpret_cast<int8_t *>(_kernel.data_ptr<int8_t>());
-  auto zeros = reinterpret_cast<int8_t *>(_zeros.data_ptr<int8_t>());
-  auto scales_i8 = reinterpret_cast<int8_t *>(_scales_i8.data_ptr<int8_t>());
-  auto wscales = reinterpret_cast<half2 *>(_wscales.data_ptr());
-  auto ascales = reinterpret_cast<half *>(_ascales.data_ptr());
-  auto options =
-      torch::TensorOptions().dtype(torch::kHalf).device(_in_feats.device());
-  int num_out_feats = _out_feats.size(-2);
-  int num_out_channels = _out_feats.size(-1);
-  auto out_feats = reinterpret_cast<half *>(_out_feats.data_ptr<at::Half>());
-  QSRV_CALL_BEGIN("qgemm_w4a8_per_group", "gemm_forward_cuda");
-  QSRV_ARG_TENSOR("_in_feats", _in_feats);
-  QSRV_ARG_TENSOR("_kernel", _kernel);
-  QSRV_ARG_TENSOR("_zeros", _zeros);
-  QSRV_ARG_TENSOR("_scales_i8", _scales_i8);
-  QSRV_ARG_TENSOR("_wscales",      _wscales);
-  QSRV_ARG_TENSOR("_ascales",      _ascales);
-  QSRV_ARG_TENSOR("_out_feats",    _out_feats);
-  QSRV_ARG_I("num_in_feats",          num_in_feats);
-  QSRV_ARG_I("num_in_channels",          num_in_channels);
-  QSRV_ARG_I("num_out_feats",          num_out_feats);
-  QSRV_ARG_I("num_out_channels",          num_out_channels);
-  QSRV_CALL_END();
-
-  constexpr int G = 128;
-
-  if (num_out_feats > 128)
-  {
-    constexpr int CTA_M = 128;
-    constexpr int CTA_N = 64;
-    constexpr int CTA_K = 64;
-    constexpr int WARP_M = 64;
-    constexpr int WARP_N = 32;
-    constexpr int WARP_K = 64;
-    constexpr int STAGES = 4;
-    KERNEL_LAUNCH_CODE
-  }
-  else if (num_out_feats >= 128)
-  {
-    if (num_in_channels <= 4096)
-    {
-      constexpr int CTA_M = 64;
-      constexpr int CTA_N = 64;
-      constexpr int CTA_K = 64;
-      constexpr int WARP_M = 32;
-      constexpr int WARP_N = 32;
-      constexpr int WARP_K = 64;
-      constexpr int STAGES = 4; 
-      KERNEL_LAUNCH_CODE
-    }
-    else
-    {
-      constexpr int CTA_M = 64;
-      constexpr int CTA_N = 64;
-      constexpr int CTA_K = 128;
-      constexpr int WARP_M = 32;
-      constexpr int WARP_N = 32;
-      constexpr int WARP_K = 64;
-      constexpr int STAGES = 3; 
-      KERNEL_LAUNCH_CODE
-    }
-  }
-  else
-  {
-    constexpr int CTA_M = 32;
-    constexpr int CTA_N = 64;
-    constexpr int CTA_K = 128;
-    constexpr int WARP_M = 32;
-    constexpr int WARP_N = 32;
-    constexpr int WARP_K = 64;
-    constexpr int STAGES = 3;
-    KERNEL_LAUNCH_CODE
-  }
-  return ;
 }

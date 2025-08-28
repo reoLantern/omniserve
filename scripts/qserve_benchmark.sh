@@ -1,9 +1,9 @@
-rm /home/mmy/work/omniserve/dump/kernel_calls.jsonl
+rm ~/work/omniserve/dump/kernel_calls.jsonl
 
 MODEL_PATH=./qserve_checkpoints/Llama-3-8B-Instruct-QServe-g128
 
 export QSRV_DUMP_KERNEL_CALLS=1
-export QSRV_DUMP_KERNEL_FILE=/home/mmy/work/omniserve/dump/kernel_calls.jsonl
+export QSRV_DUMP_KERNEL_FILE=~/work/omniserve/dump/kernel_calls.jsonl
 export QSRV_TRACE_PYBIND=1
 
 # common_args="--max-num-batched-tokens 4195000 \

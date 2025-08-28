@@ -1,7 +1,7 @@
 import json, os, time, threading, sys
 
 _path = os.environ.get("QSRV_DUMP_KERNEL_FILE",
-                       "/home/mmy/work/omniserve/dump/kernel_calls.jsonl")
+                       "~/work/omniserve/dump/kernel_calls.jsonl")
 _lock = threading.Lock()
 _enabled = os.environ.get("QSRV_TRACE_STAGES", "1") != "0"
 

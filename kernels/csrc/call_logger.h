@@ -32,7 +32,7 @@ inline bool enabled() {
 inline const char* logfile_path() {
   static std::string p = [](){
     const char* e = std::getenv("QSRV_DUMP_KERNEL_FILE");
-    return e ? std::string(e) : std::string("/home/mmy/work/omniserve/dump/kernel_calls.jsonl");
+    return e ? std::string(e) : std::string("~/work/omniserve/dump/kernel_calls.jsonl");
   }();
   return p.c_str();
 }
@@ -107,6 +107,13 @@ inline std::string vec_i64_to_json(const c10::IntArrayRef& a) {
   return s;
 }
 
+// format pointer as hex string
+inline std::string ptr_hex(const void* p) {
+  std::ostringstream oss;
+  oss << "0x" << std::hex << (uintptr_t)p;
+  return oss.str();
+}
+
 #ifdef __CUDACC__
 inline std::string dim3_to_json(const dim3& d) {
   return std::string("{\"x\":") + std::to_string(d.x) +
@@ -161,6 +168,16 @@ struct Event {
   void addK(const char* k, double v) {
     char buff[64]; std::snprintf(buff, sizeof(buff), "%.6f", v);
     addKV(k, buff);
+  }
+
+  // pointer helpers
+  void addPtr(const char* k, const void* p) {
+    std::string j = std::string("{\"addr\":\"") + ptr_hex(p) + "\"}";
+    addKV(k, j);
+  }
+  void addPtrSize(const char* k, const void* p, uint64_t nbytes) {
+    std::string j = std::string("{\"addr\":\"") + ptr_hex(p) + "\",\"bytes\":" + std::to_string(nbytes) + "}";
+    addKV(k, j);
   }
 
   // high-level helpers
@@ -243,6 +260,9 @@ struct Event {
 #define QSRV_ARG_F(key, val)                   _qsrv_e.addK((key), (double)(val))
 #define QSRV_ARG_B(key, val)                   _qsrv_e.addK((key), (bool)(val))
 #define QSRV_ARG_S(key, cstr)                  _qsrv_e.addK((key), (cstr))
+// 指针/缓冲区
+#define QSRV_ARG_PTR(key, ptr)                 _qsrv_e.addPtr((key), (const void*)(ptr))
+#define QSRV_ARG_PTR_SIZE(key, ptr, nbytes)    _qsrv_e.addPtrSize((key), (const void*)(ptr), (uint64_t)(nbytes))
 
 // 可选：模板/类型名（编译期）辅助（简单映射）
 template<typename X> constexpr const char* type_name() {

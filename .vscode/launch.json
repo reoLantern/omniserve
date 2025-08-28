@@ -32,17 +32,17 @@
       ]
     },
     {
-      "name": "Debug replay",
-      "type": "debugpy",
+      "name": "fake_gemm_debug",
+      "type": "cuda-gdb",
       "request": "launch",
-      "program": "tools/qsr_replay.py",
-      "console": "integratedTerminal",
-      "args": [
-        "--jsonl", "~/work/omniserve/dump/kernel_calls.jsonl",
-        "--module", "fused_attention_pure_dense",
-        "--name", "single_query_attention",
-        "--device", "cuda:0"
-      ]
+      "program": "~/work/omniserve/tools/replay/fake_gemm_debug",
+      "cwd": "~/work/omniserve/tools/replay",
+      "args": [],
+      "environment": [
+        { "name": "CUDA_LAUNCH_BLOCKING", "value": "1" },
+        { "name": "CUDA_DEBUGGER_SOFTWARE_PREEMPTION", "value": "1" }
+      ],
+      "stopAtEntry": false
     },
   ]
 }
