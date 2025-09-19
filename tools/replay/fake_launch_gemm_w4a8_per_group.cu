@@ -25,6 +25,37 @@
 } while(0)
 
 int main() {
+
+  int dev = 0;
+  CK(cudaGetDevice(&dev));
+
+  cudaDeviceProp prop{};
+  CK(cudaGetDeviceProperties(&prop, dev));
+  printf("=== Device %d: %s (cc %d.%d) ===\n",
+         dev, prop.name, prop.major, prop.minor);
+
+  // 设备级上限（per block / per SM）
+  int maxShmemPerBlock = 0, maxShmemPerBlockOptin = 0, maxShmemPerSM = 0;
+  int maxRegsPerBlock = 0, maxRegsPerSM = 0, warpSize = 0;
+  CK(cudaDeviceGetAttribute(&maxShmemPerBlock,
+      cudaDevAttrMaxSharedMemoryPerBlock, dev));
+  CK(cudaDeviceGetAttribute(&maxShmemPerBlockOptin,
+      cudaDevAttrMaxSharedMemoryPerBlockOptin, dev));
+  CK(cudaDeviceGetAttribute(&maxShmemPerSM,
+      cudaDevAttrMaxSharedMemoryPerMultiprocessor, dev));
+  CK(cudaDeviceGetAttribute(&maxRegsPerBlock,
+      cudaDevAttrMaxRegistersPerBlock, dev));
+  CK(cudaDeviceGetAttribute(&maxRegsPerSM,
+      cudaDevAttrMaxRegistersPerMultiprocessor, dev));
+  CK(cudaDeviceGetAttribute(&warpSize, cudaDevAttrWarpSize, dev));
+
+  printf("Device caps:\n");
+  printf("  Shared mem per BLOCK (default/opt-in): %d / %d bytes\n",
+         maxShmemPerBlock, maxShmemPerBlockOptin);
+  printf("  Shared mem per SM: %d bytes\n", maxShmemPerSM);
+  printf("  Registers per BLOCK/SM: %d / %d\n", maxRegsPerBlock, maxRegsPerSM);
+  printf("  Warp size: %d, SMs: %d\n", warpSize, prop.multiProcessorCount);
+
   // ---- 根据 JSON 设定 ----
   const int M = 2048;    // num_out_feats
   const int N = 6144;    // num_out_channels
@@ -138,7 +169,74 @@ int main() {
   // ---- 设置动态 shared memory 上限并启动 kernel ----
   // wscales 以 half2* 传入
   auto kernel = dense_kernel0<CTA_M, CTA_N, CTA_K, WARP_M, WARP_N, WARP_K, STAGES, G>;
+
+  // kernel 静态属性（编译器给出的 numRegs 等）
+  cudaFuncAttributes fattr{};
+  CK(cudaFuncGetAttributes(&fattr, kernel));
+  printf("Kernel attrs:\n");
+  printf("  numRegs per thread: %d\n", fattr.numRegs);
+  printf("  static sharedSizeBytes: %d\n", fattr.sharedSizeBytes);
+  printf("  maxDynamicSharedSizeBytes (current): %d\n",
+         fattr.maxDynamicSharedSizeBytes);
+
   CK(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kSmemByteSize));
+
+  CK(cudaFuncGetAttributes(&fattr, kernel));
+  printf("  maxDynamicSharedSizeBytes (after set): %d\n",
+          fattr.maxDynamicSharedSizeBytes);
+
+  // occupancy estimate
+  int maxBlocksPerSM = 0;
+  int threadsPerBlock = block.x * block.y * block.z;
+  cudaError_t occErr =
+      cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+          &maxBlocksPerSM, kernel, threadsPerBlock, kSmemByteSize);
+  if (occErr == cudaSuccess) {
+    printf("Occupancy estimate: up to %d blocks/SM at %d threads, dynSmem=%zu\n",
+           maxBlocksPerSM, threadsPerBlock, kSmemByteSize);
+  } else {
+    printf("cudaOccupancyMaxActiveBlocksPerMultiprocessor error: %s\n",
+           cudaGetErrorString(occErr));
+  }
+
+  // // ---- warm-up + 计时 ----
+  // const int warmup = 5;
+  // const int iters  = 50;
+
+  // printf("Warming up (%d iters)...\n", warmup);
+  // for (int i = 0; i < warmup; ++i) {
+  //   kernel<<<grid, block, kSmemByteSize>>>(
+  //       dA, dB, dZ, dS,
+  //       reinterpret_cast<half2*>(dW),
+  //       dAS, dC,
+  //       M, N, K);
+  // }
+  // CK(cudaGetLastError());
+  // CK(cudaDeviceSynchronize());
+
+  // cudaEvent_t start, stop;
+  // CK(cudaEventCreate(&start));
+  // CK(cudaEventCreate(&stop));
+
+  // printf("Timing kernel (%d iters)...\n", iters);
+  // CK(cudaEventRecord(start));
+  // for (int i = 0; i < iters; ++i) {
+  //   kernel<<<grid, block, kSmemByteSize>>>(
+  //       dA, dB, dZ, dS,
+  //       reinterpret_cast<half2*>(dW),
+  //       dAS, dC,
+  //       M, N, K);
+  // }
+  // CK(cudaEventRecord(stop));
+  // CK(cudaEventSynchronize(stop));
+
+  // float total_ms = 0.0f;
+  // CK(cudaEventElapsedTime(&total_ms, start, stop));
+  // printf("Kernel time: total %.3f ms  |  avg %.3f ms/iter  |  %.3f us/launch\n",
+  //        total_ms, total_ms/iters, 1000.0f*total_ms/iters);
+
+  // CK(cudaEventDestroy(start));
+  // CK(cudaEventDestroy(stop));
 
   printf("Launching kernel...\n");
   kernel<<<grid, block, kSmemByteSize>>>(

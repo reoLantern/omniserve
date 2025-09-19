@@ -185,6 +185,7 @@ global_to_share_one_stage_B(int8_t *src, int8_t *dst, int global_ncols,
                             int global_iter_k, int shared_iter_k, bool mask)
 {
   constexpr int total_global_iters = (CTA_N * CTA_K) / 32 / CTA_SIZE;
+  constexpr int partial_global_iters = total_global_iters / SHARED_K_ITERS;
   constexpr int NUM_WARPS = CTA_SIZE / WARP_SIZE;
   constexpr int warps_per_row = CTA_K / 32;
   constexpr int cta_step_m_or_n = NUM_WARPS / warps_per_row;
@@ -193,8 +194,9 @@ global_to_share_one_stage_B(int8_t *src, int8_t *dst, int global_ncols,
   int8_t *src_hoisted = src + global_iter_k * CTA_K * PACK_SIZE;
 
 #pragma unroll
-  for (int global_iter = 0; global_iter < total_global_iters; ++global_iter)
+  for (int t = 0; t < partial_global_iters; ++t)
   {
+    int global_iter = shared_iter_k * partial_global_iters + t;
     void *dst_ptr = (void *)(dst_hoisted + global_iter * cta_step_m_or_n *
                                                kSmemCol * PACK_SIZE);
     uint4 *src_ptr = (uint4 *)(src_hoisted + global_iter * cta_step_m_or_n *
@@ -396,6 +398,7 @@ __global__ void dense_kernel0(int8_t *__restrict__ A, int8_t *__restrict__ B,
                              A_hoisted_col_swizzled * PACK_SIZE;
   int8_t *B_shared_hoisted =
       B_shared + (threadIdx.y % B_warps_per_row) * 32 * PACK_SIZE +
+      // 32 might mean WARP_SIZE
       (threadIdx.y / B_warps_per_row) * kSmemPadKB * PACK_SIZE +
       threadIdx.x * PACK_SIZE;
   int8_t *A_hoisted = A + cta_offset_m * K + A_hoisted_row * K +

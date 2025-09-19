@@ -23,12 +23,13 @@ python setup.py install     # 实验阶段，参考 kernels 文件夹的自定�
 下载模型：
 
 ```bash
+cd omniserve # 回到 omniserve 根目录
 mkdir -p qserve_checkpoints && cd qserve_checkpoints
 sudo apt-get install -y git-lfs
 git lfs install
 GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/mit-han-lab/Llama-3-8B-Instruct-QServe
 GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/mit-han-lab/Llama-3-8B-QServe
-GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/mit-han-lab/Llama-3-8B-Instruct-QServe-g128
+GIT_LFS_SKIP_SMUDGE=1 git clone https://www.modelscope.cn/mit-han-lab/Llama-3-8B-Instruct-QServe-g128
 cd Llama-3-8B-Instruct-QServe
 git lfs pull
 ```

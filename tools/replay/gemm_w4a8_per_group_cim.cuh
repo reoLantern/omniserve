@@ -1,5 +1,36 @@
 #include <cuda_fp16.h>
 #include <cuda_pipeline_primitives.h>
+#include "../dcim_pkt.h"
+
+enum {
+  DCIM_CH      = 0,
+  WB_SLOT      = 0,
+  AD_SLOT      = 0,
+  SHAPE_NK_64x256 = 0,
+  SHAPE_NK_256x64 = 1,
+  LAYOUT_ROWCOL   = 0,
+  QUANT_INT       = 1, // B=INT（你的约束）
+  ACC_S32         = 1,
+  ATYPE_INT8      = 1, // A 可 INT4/FP16 时，改此枚举
+  BTYPE_INT       = 1,
+  CDTYPE_S32      = 1
+};
+
+// ============== DCIM 粒度（可调，满足 n*k=64*256 或 256*64） =============
+#ifndef DCIM_N
+#define DCIM_N 64       // 可改为 256
+#endif
+#ifndef DCIM_K
+#define DCIM_K 256      // 与 DCIM_N 互为 64/256
+#endif
+#ifndef DCIM_M
+#define DCIM_M 8        // 1,2,4,8,... 小 batch 友好
+#endif
+
+// ===== 模拟的 CIM 侧 Acc SRAM（独立于 mem_shared）=====
+#ifndef DCIM_ACC_SRAM_WORDS
+#define DCIM_ACC_SRAM_WORDS 2048  // 8KB (2048 * 4B)，演示用
+#endif
 
 #define OP_M 16
 #define OP_N 8
@@ -76,6 +107,12 @@ __inline__ __device__ uint32_t cast_smem_ptr_to_uint(void const *const ptr)
       : "l"(ptr));
 
   return smem_int_ptr;
+}
+
+__inline__ __device__ uint64_t cast_smem_ptr_to_uint64(void const *const ptr) {
+  uint64_t smem_ptr;
+  asm("{ cvta.to.shared.u64 %0, %1; }\n" : "=l"(smem_ptr) : "l"(ptr));
+  return smem_ptr;
 }
 
 __inline__ __device__ void ldmatrix_m8n8_x4_b16(int8_t *shared_warp, int ax0_0,
@@ -185,6 +222,7 @@ global_to_share_one_stage_B(int8_t *src, int8_t *dst, int global_ncols,
                             int global_iter_k, int shared_iter_k, bool mask)
 {
   constexpr int total_global_iters = (CTA_N * CTA_K) / 32 / CTA_SIZE;
+  constexpr int partial_global_iters = total_global_iters / SHARED_K_ITERS;
   constexpr int NUM_WARPS = CTA_SIZE / WARP_SIZE;
   constexpr int warps_per_row = CTA_K / 32;
   constexpr int cta_step_m_or_n = NUM_WARPS / warps_per_row;
@@ -193,8 +231,9 @@ global_to_share_one_stage_B(int8_t *src, int8_t *dst, int global_ncols,
   int8_t *src_hoisted = src + global_iter_k * CTA_K * PACK_SIZE;
 
 #pragma unroll
-  for (int global_iter = 0; global_iter < total_global_iters; ++global_iter)
+  for (int t = 0; t < partial_global_iters; ++t)
   {
+    int global_iter = shared_iter_k * partial_global_iters + t;
     void *dst_ptr = (void *)(dst_hoisted + global_iter * cta_step_m_or_n *
                                                kSmemCol * PACK_SIZE);
     uint4 *src_ptr = (uint4 *)(src_hoisted + global_iter * cta_step_m_or_n *
@@ -202,7 +241,7 @@ global_to_share_one_stage_B(int8_t *src, int8_t *dst, int global_ncols,
     if constexpr (STAGES > 1)
     {
       uint32_t addr = cast_smem_ptr_to_uint(dst_ptr);
-      cp_async_cg_A(addr, src_ptr, mask);
+      pkt_copy_async(addr, src_ptr, mask);
     }
     else
     {
@@ -317,11 +356,15 @@ share_to_reg_one_stage_B(int8_t *src, int8_t *dst, int8_t *zeros, int8_t *scales
 
 template <int CTA_M, int CTA_N, int CTA_K, int WARP_M, int WARP_N, int WARP_K,
           int STAGES, int G>
-__global__ void dense_kernel0(int8_t *__restrict__ A, int8_t *__restrict__ B,
+__global__ void dense_kernel0_cim(int8_t *__restrict__ A, int8_t *__restrict__ B,
                               int8_t *__restrict__ zeros, int8_t *__restrict__ scales_i8,
                               half2 *__restrict__ wscales, half *__restrict__ ascales,
                               half *__restrict__ C, int M, int64_t N, int64_t K)
 {
+  static_assert(CTA_K == DCIM_K, "Set CTA_K == DCIM_K for CIM scheduling.");
+  static_assert((CTA_N % DCIM_N) == 0, "CTA_N must be multiple of DCIM_N.");
+  static_assert((CTA_M % DCIM_M) == 0, "CTA_M must be multiple of DCIM_M.");
+
   constexpr int SPLITK = 1;
   constexpr int NUM_WARPS_MN = CTA_M / WARP_M * CTA_N / WARP_N;
   constexpr int NUM_WARPS = NUM_WARPS_MN * CTA_K / WARP_K;
@@ -345,7 +388,8 @@ __global__ void dense_kernel0(int8_t *__restrict__ A, int8_t *__restrict__ B,
   constexpr int kSmemSizeAPerStage = CTA_M * kSmemPadKA;
   constexpr int kSmemSizeBPerStage = CTA_N * kSmemPadKB / 2;
   constexpr int kSmemSizeA = kSmemSizeAPerStage * STAGES;
-  constexpr int kSmemSizeB = kSmemSizeBPerStage * STAGES;
+  // constexpr int kSmemSizeB = kSmemSizeBPerStage * STAGES;
+  constexpr int kSmemSizeB = 0;   // CIM does not need B in shared memory
 
   constexpr int scales_load_interval = G >= CTA_K ? G / CTA_K : 1;
   constexpr int scales_per_load = G < CTA_K ? CTA_K / G : 1;
@@ -354,14 +398,14 @@ __global__ void dense_kernel0(int8_t *__restrict__ A, int8_t *__restrict__ B,
   extern __shared__ int8_t mem_shared[];
   int8_t *A_shared = mem_shared;
 
-  int8_t *B_shared = mem_shared + kSmemSizeA;
+  int8_t *B_shared = mem_shared;
   int8_t *zeros_shared = mem_shared + kSmemSizeA + kSmemSizeB;
   int8_t *scales_i8_shared = mem_shared + kSmemSizeA + kSmemSizeB + kSmemSizeScales;
 
-  int8_t A_shared_warp_[2][WARP_M * WARP_K /
-                           WARP_SIZE]; 
-  int8_t B_shared_warp_[2][WARP_N * WARP_K /
-                           WARP_SIZE]; 
+  // int8_t A_shared_warp_[2][WARP_M * WARP_K /
+  //                          WARP_SIZE]; 
+  // int8_t B_shared_warp_[2][WARP_N * WARP_K /
+  //                          WARP_SIZE]; 
   constexpr int A_total_global_iters = (CTA_M * CTA_K) / PACK_SIZE / CTA_SIZE;
   constexpr int B_total_global_iters = (CTA_N * CTA_K) / PACK_SIZE / CTA_SIZE;
   constexpr int A_src_step_m = (CTA_SIZE * PACK_SIZE) / CTA_K;
@@ -370,6 +414,12 @@ __global__ void dense_kernel0(int8_t *__restrict__ A, int8_t *__restrict__ B,
 
   constexpr int B_warps_per_row = CTA_K / 32;
   constexpr int B_src_step_n = NUM_WARPS / B_warps_per_row;
+
+  // CIM：锚与“累加 SRAM”（独立 shared）
+  __shared__ uint32_t dcim_anchor0, dcim_anchor1;
+  __shared__ __align__(16)uint32_t dcim_acc_sram[DCIM_ACC_SRAM_WORDS];
+  uint64_t anchor0_addr = cast_smem_ptr_to_uint64(&dcim_anchor0);
+  uint64_t anchor1_addr = cast_smem_ptr_to_uint64(&dcim_anchor1);
 
   int cta_offset_m = blockIdx_m * CTA_M;
   int cta_offset_n = blockIdx_n * CTA_N;
@@ -431,18 +481,24 @@ __global__ void dense_kernel0(int8_t *__restrict__ A, int8_t *__restrict__ B,
         N, cta_offset_m, cta_offset_n, k_0_0_ld, 0, k_0_0_ld < gemm_iters);
 
     if constexpr (STAGES > 1)
+    {
       __pipeline_commit();
+      pkt_copy_commit();
+    }
   }
   if constexpr (STAGES > 1)
+  {
     __pipeline_wait_prior(STAGES - 2);
+    pkt_copy_wait<STAGES - 2>();
+  }
   __syncthreads();
 
-  share_to_reg_one_stage_A<CTA_M, CTA_N, CTA_K, CTA_SIZE, STAGES>(
-      A_shared + warp_offset_k, A_shared_warp_[0], warp_offset_m, warp_offset_n, 0,
-      WARP_M / INTRIN_M);
-  share_to_reg_one_stage_B<CTA_M, CTA_N, CTA_K, CTA_SIZE, STAGES, G>(
-      B_shared + warp_offset_k * PACK_SIZE, B_shared_warp_[0], zeros_shared, scales_i8_shared,
-      warp_offset_m, warp_offset_n, 0, 0, WARP_N / 32);
+  // share_to_reg_one_stage_A<CTA_M, CTA_N, CTA_K, CTA_SIZE, STAGES>(
+  //     A_shared + warp_offset_k, A_shared_warp_[0], warp_offset_m, warp_offset_n, 0,
+  //     WARP_M / INTRIN_M);
+  // share_to_reg_one_stage_B<CTA_M, CTA_N, CTA_K, CTA_SIZE, STAGES, G>(
+  //     B_shared + warp_offset_k * PACK_SIZE, B_shared_warp_[0], zeros_shared, scales_i8_shared,
+  //     warp_offset_m, warp_offset_n, 0, 0, WARP_N / 32);
   constexpr int SHARED_K_ITERS = WARP_K / INTRIN_K;
 
   for (; k_0_0 < gemm_iters; ++k_0_0, ++k_0_0_ld)
@@ -454,42 +510,25 @@ __global__ void dense_kernel0(int8_t *__restrict__ A, int8_t *__restrict__ B,
     int8_t *zeros_shared_this_compute_stage;
     int8_t *scales_i8_shared_this_compute_stage;
 
-    for (int iter_k = 0; iter_k < SHARED_K_ITERS; ++iter_k)
-    {
-      A_shared_this_compute_stage =
-          A_shared + compute_stage * kSmemSizeAPerStage + warp_offset_k;
-      B_shared_this_compute_stage =
-          B_shared + compute_stage * kSmemSizeBPerStage + warp_offset_k * PACK_SIZE;
-      zeros_shared_this_compute_stage = zeros_shared + (compute_stage)*CTA_N;
-      scales_i8_shared_this_compute_stage = scales_i8_shared + (compute_stage)*CTA_N;
+    // 等待当前 compute_stage 的两条 copy 管线就绪
+    if constexpr (STAGES > 1) {
+      __pipeline_wait_prior(STAGES - 2);
+      pkt_copy_wait<STAGES - 2>();
+    }
+    __syncthreads();
 
-      share_to_reg_one_stage_A<CTA_M, CTA_N, CTA_K, CTA_SIZE, STAGES>(
-          A_shared_this_compute_stage, A_shared_warp_[(iter_k + 1) % 2],
-          warp_offset_m, warp_offset_n, (iter_k + 1) % SHARED_K_ITERS,
-          WARP_M / INTRIN_M);
-      share_to_reg_one_stage_B<CTA_M, CTA_N, CTA_K, CTA_SIZE, STAGES, G>(
-          B_shared_this_compute_stage, B_shared_warp_[(iter_k + 1) % 2],
-          zeros_shared_this_compute_stage, scales_i8_shared_this_compute_stage,
-          warp_offset_m, warp_offset_n, k_0_0 + (iter_k == SHARED_K_ITERS - 1),
-          (iter_k + 1) % SHARED_K_ITERS, WARP_N / 32);
-      int8_t *A_shared_warp = A_shared_warp_[iter_k % 2];
-      int8_t *B_shared_warp = B_shared_warp_[iter_k % 2];
-
-      for (int j_0_4 = 0; j_0_4 < WARP_N / INTRIN_N; ++j_0_4)
-      {
-        for (int i_0_3 = 0; i_0_3 < WARP_M / INTRIN_M; ++i_0_3)
-        {
-          mma_m16n8k32(
-              (void *)(C_warp + i_0_3 * WARP_N / INTRIN_N * 8 + j_0_4 * 8),
-              (void *)(A_shared_warp + i_0_3 * 16),
-              (void *)(B_shared_warp + j_0_4 * 16));
-          mma_m16n8k32(
-              (void *)(C_warp + i_0_3 * WARP_N / INTRIN_N * 8 + j_0_4 * 8 + 4),
-              (void *)(A_shared_warp + i_0_3 * 16),
-              (void *)(B_shared_warp + j_0_4 * 16 + 8));
+    // —— (新增) 仅 CTA 唯一线程：遍历 CTA 子网格发本拍的 DCIM mma.async，然后 commit
+    if (threadIdx.x == 0 && threadIdx.y == 0){
+      for (int mi = 0; mi < CTA_M; mi += DCIM_M){
+        for (int nj = 0; nj < CTA_N; nj += DCIM_N){
+          pkt_mma_async<3,4,1,5,2,0,1>();
         }
       }
+      pkt_mma_commit<>();
+    }
 
+    for (int iter_k = 0; iter_k < SHARED_K_ITERS; ++iter_k)
+    {
       if (iter_k < SHARED_K_ITERS - 1)
       {
         if constexpr (STAGES == 1)
@@ -532,6 +571,8 @@ __global__ void dense_kernel0(int8_t *__restrict__ A, int8_t *__restrict__ B,
         {
           __pipeline_commit();
           __pipeline_wait_prior(STAGES - 2);
+          pkt_copy_commit<>();
+          pkt_copy_wait<STAGES - 2>();
         }
         compute_stage = (k_0_0 + 1) % STAGES;
         __syncthreads();
@@ -540,7 +581,33 @@ __global__ void dense_kernel0(int8_t *__restrict__ A, int8_t *__restrict__ B,
   }
   __pipeline_commit();
   __pipeline_wait_prior(0);
+  pkt_copy_commit();
+  pkt_copy_wait<0>();
+  pkt_mma_commit();
+  pkt_mma_wait<0>();
   __syncthreads();
+
+  // ===== ACC_LOAD：从“模拟 Acc SRAM”读满 C_warp（覆盖原版 C_warp 的角色）=====
+  {
+    constexpr int INTS_PER_THREAD = CTA_M * CTA_N / CTA_SIZE_MN;
+    size_t base_word = ((size_t)(warp_mn * WARP_SIZE + threadIdx.x) * INTS_PER_THREAD) % DCIM_ACC_SRAM_WORDS;
+
+    int idx = 0;
+    for (; idx + 3 < INTS_PER_THREAD; idx += 4){
+      size_t w = (base_word + idx) % DCIM_ACC_SRAM_WORDS;
+      size_t w_aligned = w & ~size_t(3);
+      uint64_t shbase = cast_smem_ptr_to_uint64(&dcim_acc_sram[w_aligned]);
+      uint32_t d0,d1,d2,d3;
+      pkt_acc_load_4<>(d0,d1,d2,d3, shbase);
+      C_warp[idx+0]=(int)d0; C_warp[idx+1]=(int)d1; C_warp[idx+2]=(int)d2; C_warp[idx+3]=(int)d3;
+    }
+    for (; idx < INTS_PER_THREAD; ++idx){
+      size_t w = (base_word + idx) % DCIM_ACC_SRAM_WORDS;
+      uint64_t shbase = cast_smem_ptr_to_uint64(&dcim_acc_sram[w]);
+      uint32_t d; pkt_acc_load_1<>(d, shbase);
+      C_warp[idx]=(int)d;
+    }
+  }
 
   if constexpr (SLICES > 1)
   {
