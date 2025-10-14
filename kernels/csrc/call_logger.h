@@ -26,13 +26,28 @@ namespace qsrvlog {
 
 // ---- runtime switches -------------------------------------------------------
 inline bool enabled() {
-  return true;
+  static bool is_enabled = [](){
+    const char* e = std::getenv("QSRV_ENABLE_CALL_LOGGER");
+    if (!e) return false;  // 默认关闭，需要显式启用
+    std::string val(e);
+    // 支持多种表示 "启用" 的值：1, true, True, TRUE, on, ON, yes, YES
+    return (val == "1" || val == "true" || val == "True" || val == "TRUE" || 
+            val == "on" || val == "ON" || val == "yes" || val == "YES");
+  }();
+  return is_enabled;
 }
 
 inline const char* logfile_path() {
   static std::string p = [](){
     const char* e = std::getenv("QSRV_DUMP_KERNEL_FILE");
-    return e ? std::string(e) : std::string("~/work/omniserve/dump/kernel_calls.jsonl");
+    if (e) return std::string(e);
+    
+    // 默认路径：尝试展开 HOME 环境变量
+    const char* home = std::getenv("HOME");
+    if (home) {
+      return std::string(home) + "/work/omniserve/dump/kernel_calls.jsonl";
+    }
+    return std::string("./kernel_calls.jsonl"); // fallback
   }();
   return p.c_str();
 }
@@ -146,8 +161,8 @@ struct Event {
     buf.reserve(1024);
     buf += "{";
     addK("ts_us", (int64_t)now_us());
-    addK("pid",  (int64_t)pid());
-    addK("tid",  (int64_t)tid());
+    // addK("pid",  (int64_t)pid());
+    // addK("tid",  (int64_t)tid());
     addK("kind", kind);
     addK("module", module);
     addK("name", name);

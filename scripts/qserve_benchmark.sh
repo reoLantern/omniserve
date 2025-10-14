@@ -1,10 +1,10 @@
-rm ~/work/omniserve/dump/kernel_calls.jsonl
-
 MODEL_PATH=./qserve_checkpoints/Llama-3-8B-Instruct-QServe-g128
 
-export QSRV_DUMP_KERNEL_CALLS=1
-export QSRV_DUMP_KERNEL_FILE=~/work/omniserve/dump/kernel_calls.jsonl
-export QSRV_TRACE_PYBIND=1
+export QSRV_DUMP_KERNEL_FILE=${HOME}/work/omniserve/dump/kernel_calls.jsonl
+export QSRV_TRACE_PYBIND=0  # 启用简单追踪输出
+export QSRV_ENABLE_CALL_LOGGER=1  # 启用 call_logger
+
+rm ${QSRV_DUMP_KERNEL_FILE}
 
 # common_args="--max-num-batched-tokens 4195000 \
 #              --chunk-prefill-size 1024000 \
@@ -13,7 +13,7 @@ common_args="--max-num-batched-tokens 419500 \
              --chunk-prefill-size 102400 \
              --sparse-decode-mode 0"
 
-GLOBAL_BATCH_SIZE=128 NUM_GPU_PAGE_BLOCKS=$((25*GLOBAL_BATCH_SIZE)) \
+GLOBAL_BATCH_SIZE=1 NUM_GPU_PAGE_BLOCKS=$((25*GLOBAL_BATCH_SIZE)) \
 NUM_RETRIEVAL_GPU_PAGE_BLOCKS=${NUM_GPU_PAGE_BLOCKS} \
 NUM_STREAMING_GPU_PAGE_BLOCKS=0 \
 CHUNK_PREFILL_SIZE=214700000 \
@@ -22,7 +22,7 @@ python qserve_benchmark.py \
   --benchmarking \
   --precision w4a8kv4 \
   --group-size 128 \
-  --max-num-seqs 2 \
+  --max-num-seqs 256 \
   --kv-quant-granularity fine_grained $common_args
 
 # --max-num-batched-tokens: Maximum number of batched tokens per iteration. Default: 262144.

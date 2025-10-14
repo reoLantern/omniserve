@@ -2,8 +2,8 @@
   "version": 4,
   "env": {
     "CUDA_HOME": "/usr/local/cuda",
-    "TORCH_SITE": "~/.conda/envs/OmniServe/lib/python3.10/site-packages/torch",
-    "PYTHON_INCLUDE": "~/.conda/envs/OmniServe/include/python3.10"
+    "TORCH_SITE": "/home/mingyuan.ma/apps/miniconda3/envs/OmniServe/lib/python3.10/site-packages/torch",
+    "PYTHON_INCLUDE": "/home/mingyuan.ma/apps/miniconda3/envs/OmniServe/include/python3.10"
   },
   "configurations": [
     {

@@ -17,7 +17,8 @@ pip install block_sparse_attn-0.0.1+cu122torch2.2cxx11abiFALSE-cp310-cp310-linux
 
 pip install ninja   # Install ninja if not already
 cd kernels
-python setup.py install     # 实验阶段，参考 kernels 文件夹的自定义 .sh 脚本
+# python setup.py install     # 实验阶段，参考 kernels 文件夹的自定义 .sh 脚本
+bash compile.sh
 ```
 
 下载模型：

@@ -66,16 +66,6 @@
   QSRV_ARG_I("WARP_N", WARP_N);                                                                            \
   QSRV_ARG_I("WARP_K", WARP_K);                                                                            \
   QSRV_ARG_I("STAGES", STAGES);                                                                            \
-  QSRV_ARG_I("G", G);                                                                                      \
-  QSRV_ARG_I("SLICES", (CTA_K / WARP_K));                                                                  \
-  /* intrinsic/pack constants (compile-time) */                                                            \
-  QSRV_ARG_I("INTRIN_M", INTRIN_M);                                                                        \
-  QSRV_ARG_I("INTRIN_N", INTRIN_N);                                                                        \
-  QSRV_ARG_I("INTRIN_K", INTRIN_K);                                                                        \
-  QSRV_ARG_I("OP_M", OP_M);                                                                                \
-  QSRV_ARG_I("OP_N", OP_N);                                                                                \
-  QSRV_ARG_I("OP_K", OP_K);                                                                                \
-  QSRV_ARG_I("PACK_SIZE", PACK_SIZE);                                                                      \
   /* problem sizes passed to kernel */                                                                      \
   QSRV_ARG_I("M", num_in_feats);                                                                           \
   QSRV_ARG_I("N", num_out_channels);                                                                        \
