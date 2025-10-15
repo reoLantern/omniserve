@@ -10,6 +10,8 @@
 #include <cuda_fp16.h>
 #include <cuda_pipeline_primitives.h>
 #include <torch/extension.h>
+#include "../../qsrv_trace.h"
+#include "../../call_logger.h"
 
 #define OP_M 16
 #define OP_N 8
@@ -46,6 +48,29 @@
   dim3 num_blocks(num_blocks_n *tile_shift,                                                                  \
                   (num_blocks_m + tile_shift - 1) / tile_shift);                                             \
   dim3 threads_per_block(WARP_SIZE, NUM_WARPS);                                                              \
+  QSRV_LAUNCH_BEGIN_LIGHT("qgemm_w4a8_per_group", "dense_kernel0",                                           \
+                    num_blocks, threads_per_block, /*smem*/kSmemByteSize);                                   \
+  QSRV_ARG_I("CTA_M", CTA_M);                                                                                \
+  QSRV_ARG_I("CTA_N", CTA_N);                                                                                \
+  QSRV_ARG_I("CTA_K", CTA_K);                                                                                \
+  QSRV_ARG_I("WARP_M", WARP_M);                                                                              \
+  QSRV_ARG_I("WARP_N", WARP_N);                                                                              \
+  QSRV_ARG_I("WARP_K", WARP_K);                                                                              \
+  QSRV_ARG_I("STAGES", STAGES);                                                                              \
+  /* problem sizes passed to kernel */                                                                       \
+  QSRV_ARG_I("M", num_in_feats);                                                                             \
+  QSRV_ARG_I("N", num_out_channels);                                                                         \
+  QSRV_ARG_I("K", num_in_channels);                                                                          \
+  QSRV_ARG_I("log_tile", log_tile);                                                                          \
+  /* raw pointers + computed buffer sizes (bytes) under W4A8 layout */                                       \
+  QSRV_ARG_PTR_SIZE("in_feats_ptr",  in_feats,   (uint64_t)num_in_feats * (uint64_t)num_in_channels * sizeof(int8_t));          \
+  QSRV_ARG_PTR_SIZE("kernel_ptr",    kernel,     (uint64_t)num_out_channels * (uint64_t)(num_in_channels/2) * sizeof(int8_t));  \
+  QSRV_ARG_PTR_SIZE("zeros_ptr",     zeros,      (uint64_t)(num_in_channels/ G) * (uint64_t)num_out_channels * sizeof(int8_t)); \
+  QSRV_ARG_PTR_SIZE("scales_i8_ptr", scales_i8,  (uint64_t)(num_in_channels/ G) * (uint64_t)num_out_channels * sizeof(int8_t)); \
+  QSRV_ARG_PTR_SIZE("wscales_ptr",   wscales,    (uint64_t)num_out_channels * sizeof(half));                 \
+  QSRV_ARG_PTR_SIZE("ascales_ptr",   ascales,    (uint64_t)num_in_feats   * sizeof(half));                   \
+  QSRV_ARG_PTR_SIZE("out_feats_ptr", out_feats,  (uint64_t)num_in_feats * (uint64_t)num_out_channels * sizeof(half));           \
+  QSRV_LAUNCH_END();                                                                                         \
   auto kernel_func =                                                                                         \
       dense_kernel0<CTA_M, CTA_N, CTA_K, WARP_M, WARP_N, WARP_K, STAGES, G>;                                 \
   cudaFuncSetAttribute(kernel_func, cudaFuncAttributeMaxDynamicSharedMemorySize,                             \
@@ -648,6 +673,20 @@ void gemm_forward_cuda(torch::Tensor _in_feats,
   int num_out_feats = _out_feats.size(-2);
   int num_out_channels = _out_feats.size(-1);
   auto out_feats = reinterpret_cast<half *>(_out_feats.data_ptr<at::Half>());
+  QSRV_TRACE_HIT("qgemm_w4a8_per_group", "gemm_forward_cuda");
+  QSRV_CALL_BEGIN("qgemm_w4a8_per_group", "gemm_forward_cuda");
+  QSRV_ARG_TENSOR("_in_feats", _in_feats);
+  QSRV_ARG_TENSOR("_kernel", _kernel);
+  QSRV_ARG_TENSOR("_zeros", _zeros);
+  QSRV_ARG_TENSOR("_scales_i8", _scales_i8);
+  QSRV_ARG_TENSOR("_wscales",      _wscales);
+  QSRV_ARG_TENSOR("_ascales",      _ascales);
+  QSRV_ARG_TENSOR("_out_feats",    _out_feats);
+  QSRV_ARG_I("num_in_feats",          num_in_feats);
+  QSRV_ARG_I("num_in_channels",          num_in_channels);
+  QSRV_ARG_I("num_out_feats",          num_out_feats);
+  QSRV_ARG_I("num_out_channels",          num_out_channels);
+  QSRV_CALL_END();
 
   constexpr int G = 128;
 

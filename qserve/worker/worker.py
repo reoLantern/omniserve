@@ -218,7 +218,11 @@ class Worker:
                     device
                 )
             )
-        print(self.layer_block_tables[0].shape)
+        print("init_block_tables")
+        print("    max_block_table_len:", self.max_block_table_len)
+        print("    Number of layers:", len(self.layer_block_tables))
+        print("    layer_block_tables dtype:", self.layer_block_tables[0].dtype)
+        print("    layer_block_tables[0] shape:", self.layer_block_tables[0].shape)
 
     def warm_up_model(self) -> None:
         pass

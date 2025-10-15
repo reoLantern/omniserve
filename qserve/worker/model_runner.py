@@ -8,6 +8,7 @@
 
 import os
 from typing import Dict, List, Optional, Tuple, Union
+from qserve.utils.stage_trace import span, emit
 
 import qserve_backend.fused_attention as fused_attention
 import torch
@@ -658,11 +659,26 @@ class ModelRunner:
             max_block_table_len,
             layer_kv_scales=layer_kv_scales,
         )
+        is_prefill = bool(input_metadata.is_prompt)
+        meta = {
+            # "batch_size": int(input_metadata.batched_seq_len),
+            "max_seq_len": int(input_metadata.max_seq_len),
+            "is_prefill": is_prefill,
+            "layer_cnt": self.num_layers,
+        }
+        # decode 的 token 步，可以用 max_seq_len 近似当前 timestep
+        if not is_prefill:
+            meta["timestep"] = int(input_metadata.max_seq_len)
+
         model = self.model
-        output = model(input_tokens, input_metadata)
-        
-        if self.run_vlm:
-            tokens = model.llm.sample(input_tokens, output, input_metadata)
-        else:
-            tokens = model.sample(input_tokens, output, input_metadata)
+
+        with span("prefill" if is_prefill else "decode", meta):
+            output = model(input_tokens, input_metadata)
+            emit({"event": "sample_begin", **meta})
+            if self.run_vlm:
+                tokens = model.llm.sample(input_tokens, output, input_metadata)
+            else:
+                tokens = model.sample(input_tokens, output, input_metadata)
+            emit({"event": "sample_end", **meta})
+
         return tokens

@@ -11,6 +11,8 @@
 #include <c10/cuda/CUDAGuard.h>
 
 #include "applyBiasRopeUpdateKVCache.h"
+#include "../qsrv_trace.h"
+#include "../call_logger.h"
 
 INSTANTIATE_ADDFUSEDQKVBIAS_TRANSPOSE(half, KVBlockArray, true);
 INSTANTIATE_ADDFUSEDQKVBIAS_TRANSPOSE(half, KVBlockArray, false);
@@ -35,6 +37,24 @@ void apply_bias_rope_update_kv_cache(const torch::Tensor qkv,
                                      const bool int4_kv_cache,
                                      const bool kv_cache_with_zeros)
 {
+    QSRV_TRACE_HIT("fused_attention", "apply_bias_rope_update_kv_cache");
+    QSRV_CALL_BEGIN("fused_attention", "apply_bias_rope_update_kv_cache");
+    QSRV_ARG_TENSOR("qkv", qkv);
+    QSRV_ARG_TENSOR("seq_lens", seq_lens);
+    QSRV_ARG_TENSOR("padding_offset", padding_offset);
+    QSRV_ARG_OPT_TENSOR("kv_pointers",      kv_pointers);
+    QSRV_ARG_I("head_num",                  head_num);
+    QSRV_ARG_I("kv_head_num",               kv_head_num);
+    QSRV_ARG_I("seq_len",                   seq_len);
+    QSRV_ARG_I("tokens_per_block",          tokens_per_block);
+    QSRV_ARG_I("size_per_token",            size_per_token);
+    QSRV_ARG_I("rotary_embedding_dim",      rotary_embedding_dim);
+    QSRV_ARG_F("rotary_embedding_base",     rotary_embedding_base);
+    QSRV_ARG_I("rotary_embedding_max_positions", rotary_embedding_max_positions);
+    QSRV_ARG_B("neox_rotary_style",         neox_rotary_style);
+    QSRV_ARG_B("int4_kv_cache",             int4_kv_cache);
+    QSRV_ARG_B("kv_cache_with_zeros",       kv_cache_with_zeros);
+    QSRV_CALL_END();
     half *q_ptr = nullptr;
     half *qkv_ptr = reinterpret_cast<half *>(qkv.data_ptr<at::Half>());
     int *seq_lens_ptr = seq_lens.data_ptr<int>();

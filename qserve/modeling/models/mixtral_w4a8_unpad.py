@@ -42,6 +42,7 @@ from qserve.utils.weight_utils import (
     load_padded_tensor_parallel_vocab,
     load_tensor_parallel_weights,
 )
+from qserve.utils.stage_trace import span, emit
 
 # import moe_helpers
 
@@ -163,6 +164,7 @@ class MixtralAttention(nn.Module):
             k = k.reshape(k.size(0), self.num_kv_heads, self.head_dim)
             v = v.reshape(v.size(0), self.num_kv_heads, self.head_dim)
 
+            emit({"event": "flash_attn_varlen_func called (mixtral_w4a8_unpad.py)"})
             attn_output = flash_attn_varlen_func(
                 q,
                 k,
@@ -554,6 +556,7 @@ class MixtralModel(nn.Module):
             )
 
             for i in range(len(self.layers)):
+                emit({"event": "executing layer", "layer": i})
                 layer = self.layers[i]
                 hidden_states = layer(
                     hidden_states,

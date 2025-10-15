@@ -10,6 +10,8 @@
 #include <cuda_fp16.h>
 #include <cuda_pipeline_primitives.h>
 #include <torch/extension.h>
+#include "../../qsrv_trace.h"
+#include "../../call_logger.h"
 
 #define OP_M 16
 #define OP_N 8
@@ -49,6 +51,21 @@
       dense_kernel0<CTA_M, CTA_N, CTA_K, WARP_M, WARP_N, WARP_K, STAGES>;        \
   cudaFuncSetAttribute(kernel_func, cudaFuncAttributeMaxDynamicSharedMemorySize, \
                        kSmemByteSize);                                           \
+  QSRV_LAUNCH_BEGIN_LIGHT("qgemm_w8a8", "dense_kernel0",                         \
+                    num_blocks, threads_per_block, /*smem*/kSmemByteSize);       \
+  QSRV_ARG_I("CTA_M", CTA_M);                                                    \
+  QSRV_ARG_I("CTA_N", CTA_N);                                                    \
+  QSRV_ARG_I("CTA_K", CTA_K);                                                    \
+  QSRV_ARG_I("WARP_M", WARP_M);                                                  \
+  QSRV_ARG_I("WARP_N", WARP_N);                                                  \
+  QSRV_ARG_I("WARP_K", WARP_K);                                                  \
+  QSRV_ARG_I("STAGES", STAGES);                                                  \
+  /* problem sizes passed to kernel */                                           \
+  QSRV_ARG_I("M", num_in_feats);                                                 \
+  QSRV_ARG_I("N", num_out_channels);                                             \
+  QSRV_ARG_I("K", num_in_channels);                                              \
+  QSRV_ARG_I("log_tile", log_tile);                                              \
+  QSRV_LAUNCH_END();                                                             \
   kernel_func<<<num_blocks, threads_per_block, kSmemByteSize>>>(                 \
       in_feats, kernel, wscales, ascales, out_feats, num_in_feats, num_out_channels,               \
       num_in_channels);
@@ -550,6 +567,18 @@ void w8a8_gemm_forward_cuda(torch::Tensor _in_feats,
 
 
   auto out_feats = reinterpret_cast<half *>(_out_feats.data_ptr<at::Half>());
+  QSRV_TRACE_HIT("qgemm_w8a8", "w8a8_gemm_forward_cuda");
+  QSRV_CALL_BEGIN("qgemm_w8a8", "w8a8_gemm_forward_cuda");
+  QSRV_ARG_TENSOR("_in_feats", _in_feats);
+  QSRV_ARG_TENSOR("_kernel", _kernel);
+  QSRV_ARG_TENSOR("_wscales",      _wscales);
+  QSRV_ARG_TENSOR("_ascales",      _ascales);
+  QSRV_ARG_TENSOR("_out_feats",    _out_feats);
+  QSRV_ARG_I("num_in_feats",          num_in_feats);
+  QSRV_ARG_I("num_in_channels",          num_in_channels);
+  QSRV_ARG_I("num_out_feats",          num_out_feats);
+  QSRV_ARG_I("num_out_channels",          num_out_channels);
+  QSRV_CALL_END();
 
   if (num_out_feats > 128)
   {

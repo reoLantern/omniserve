@@ -14,6 +14,8 @@
 #include "reduction_utils.cuh"
 #include <cuda_fp16.h>
 #include <cassert>
+#include "qsrv_trace.h"
+#include "call_logger.h"
 
 namespace vllm {
 template <typename T, typename scale_type, bool use_per_token_dequant>
@@ -164,9 +166,21 @@ void invoke_dequant_add_residual(
     torch::Tensor &scale) {  // [num_tokens]
   int hidden_size = input.size(-1);
   int num_tokens = input.numel() / hidden_size;
+  QSRV_TRACE_HIT("fused_kernels", "invoke_dequant_add_residual");
+  QSRV_CALL_BEGIN("fused_kernels", "invoke_dequant_add_residual");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_ARG_TENSOR("residual", residual);
+  QSRV_ARG_TENSOR("scale", scale);
+  QSRV_ARG_I("hidden_size", hidden_size);
+  QSRV_ARG_I("num_tokens", num_tokens);
+  QSRV_CALL_END();
   dim3 grid(num_tokens);
   dim3 block(std::min(hidden_size, 1024));
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  QSRV_LAUNCH_BEGIN("fused_kernels", "dequant_add_residual_kernel",
+                    grid, block, /*smem*/0, stream);
+  QSRV_LAUNCH_END();
   VLLM_DISPATCH_FLOATING_TYPES(
       residual.scalar_type(), "dequant_add_residual_kernel", [&] {
         vllm::dequant_add_residual_kernel<scalar_t, at::Half *, true>
@@ -181,12 +195,23 @@ void invoke_dequant(torch::Tensor &out,   // [..., hidden_size]
                     at::Half scale) {
   int hidden_size = input.size(-1);
   int num_tokens = input.numel() / hidden_size;
+  QSRV_TRACE_HIT("fused_kernels", "invoke_dequant");
+  QSRV_CALL_BEGIN("fused_kernels", "invoke_dequant");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_ARG_S("scale type", "float16");
+  QSRV_ARG_I("hidden_size", hidden_size);
+  QSRV_ARG_I("num_tokens", num_tokens);
+  QSRV_CALL_END();
   dim3 grid(num_tokens);
   dim3 block(std::min(hidden_size, 1024));
   int input_stride = input.stride(-2);
   int out_stride = out.stride(-2);
 
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  QSRV_LAUNCH_BEGIN("fused_kernels", "dequant_kernel",
+                    grid, block, /*smem*/0, stream);
+  QSRV_LAUNCH_END();
   VLLM_DISPATCH_FLOATING_TYPES(out.scalar_type(), "dequant_kernel", [&] {
     vllm::dequant_kernel<scalar_t><<<grid, block, 0, stream>>>(
         input.data_ptr<int32_t>(), out.data_ptr<scalar_t>(), scale, num_tokens, hidden_size,
@@ -201,9 +226,20 @@ void invoke_quant(torch::Tensor &out,   // [..., hidden_size]
   assert(out.is_contiguous());
   int hidden_size = input.size(-1);
   int num_tokens = input.numel() / hidden_size;
+  QSRV_TRACE_HIT("fused_kernels", "invoke_quant");
+  QSRV_CALL_BEGIN("fused_kernels", "invoke_quant");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_ARG_S("scale type", "float16");
+  QSRV_ARG_I("hidden_size", hidden_size);
+  QSRV_ARG_I("num_tokens", num_tokens);
+  QSRV_CALL_END();
   dim3 grid(num_tokens);
   dim3 block(std::min(hidden_size, 1024));
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  QSRV_LAUNCH_BEGIN("fused_kernels", "quant_kernel",
+                    grid, block, /*smem*/0, stream);
+  QSRV_LAUNCH_END();
   VLLM_DISPATCH_FLOATING_TYPES(input.scalar_type(), "quant_kernel", [&] {
     vllm::quant_kernel<scalar_t, at::Half, false><<<grid, block, 0, stream>>>(
         input.data_ptr<scalar_t>(), out.data_ptr<int8_t>(), scale, num_tokens, hidden_size);
@@ -217,9 +253,20 @@ void invoke_quant(torch::Tensor &out,   // [..., hidden_size]
   assert(out.is_contiguous());
   int hidden_size = input.size(-1);
   int num_tokens = input.numel() / hidden_size;
+  QSRV_TRACE_HIT("fused_kernels", "invoke_quant_v2");
+  QSRV_CALL_BEGIN("fused_kernels", "invoke_quant_v2");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_ARG_S("scale type", "float16");
+  QSRV_ARG_I("hidden_size", hidden_size);
+  QSRV_ARG_I("num_tokens", num_tokens);
+  QSRV_CALL_END();
   dim3 grid(num_tokens);
   dim3 block(std::min(hidden_size, 1024));
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  QSRV_LAUNCH_BEGIN("fused_kernels", "quant_kernel",
+                    grid, block, /*smem*/0, stream);
+  QSRV_LAUNCH_END();
   VLLM_DISPATCH_FLOATING_TYPES(input.scalar_type(), "quant_kernel", [&] {
     vllm::quant_kernel<scalar_t, at::Half *, true><<<grid, block, 0, stream>>>(
         input.data_ptr<scalar_t>(), out.data_ptr<int8_t>(),
@@ -238,9 +285,20 @@ void invoke_quant_fuse_sum(torch::Tensor &out,   // [..., hidden_size]
   assert(out.is_contiguous());
   int hidden_size = input.size(-1);
   int num_tokens = input.numel() / hidden_size;
+  QSRV_TRACE_HIT("fused_kernels", "invoke_quant_fuse_sum");
+  QSRV_CALL_BEGIN("fused_kernels", "invoke_quant_fuse_sum");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_ARG_S("scale type", "float16");
+  QSRV_ARG_I("hidden_size", hidden_size);
+  QSRV_ARG_I("num_tokens", num_tokens);
+  QSRV_CALL_END();
   dim3 grid(num_tokens);
   dim3 block(std::min(hidden_size, 1024));
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  QSRV_LAUNCH_BEGIN("fused_kernels", "quant_kernel_fuse_sum",
+                    grid, block, /*smem*/0, stream);
+  QSRV_LAUNCH_END();
   VLLM_DISPATCH_FLOATING_TYPES(input.scalar_type(), "quant_kernel_fuse_sum", [&] {
     vllm::quant_kernel_fuse_sum<scalar_t, at::Half, false><<<grid, block, 0, stream>>>(
         input.data_ptr<scalar_t>(), out.data_ptr<int8_t>(), input_sum, scale, num_tokens, hidden_size);
@@ -255,9 +313,20 @@ void invoke_quant_fuse_sum(torch::Tensor &out,   // [..., hidden_size]
   assert(out.is_contiguous());
   int hidden_size = input.size(-1);
   int num_tokens = input.numel() / hidden_size;
+  QSRV_TRACE_HIT("fused_kernels", "invoke_quant_fuse_sum_v2");
+  QSRV_CALL_BEGIN("fused_kernels", "invoke_quant_fuse_sum_v2");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_ARG_S("scale type", "float16");
+  QSRV_ARG_I("hidden_size", hidden_size);
+  QSRV_ARG_I("num_tokens", num_tokens);
+  QSRV_CALL_END();
   dim3 grid(num_tokens);
   dim3 block(std::min(hidden_size, 1024));
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  QSRV_LAUNCH_BEGIN("fused_kernels", "quant_kernel_fuse_sum",
+                    grid, block, /*smem*/0, stream);
+  QSRV_LAUNCH_END();
   VLLM_DISPATCH_FLOATING_TYPES(input.scalar_type(), "quant_kernel_fuse_sum", [&] {
     vllm::quant_kernel_fuse_sum<scalar_t, at::Half *, true><<<grid, block, 0, stream>>>(
         input.data_ptr<scalar_t>(), out.data_ptr<int8_t>(), input_sum.data_ptr<at::Half>(),

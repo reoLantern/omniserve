@@ -7,6 +7,8 @@
 //   year={2024}
 // }
 #include <torch/extension.h>
+#include "../qsrv_trace.h"
+#include "../call_logger.h"
 
 __global__ void computePaddingOffsets(int *paddingOffsets, const int *seqOffsets, int maxSeqLength)
 {
@@ -33,11 +35,20 @@ __global__ void computePaddingOffsets(int *paddingOffsets, const int *seqOffsets
 torch::Tensor compute_padding_offsets(torch::Tensor &cu_seqlens,
                                       int max_seqlen, int tot_num_tokens)
 {
+    QSRV_TRACE_HIT("fused_attention", "compute_padding_offsets");
+    QSRV_CALL_BEGIN("fused_attention", "compute_padding_offsets");
+    QSRV_ARG_TENSOR("cu_seqlens", cu_seqlens);
+    QSRV_ARG_I("max_seqlen",      max_seqlen);
+    QSRV_ARG_I("tot_num_tokens",  tot_num_tokens);
+    QSRV_CALL_END();
     int batch_size = cu_seqlens.size(0) - 1;
     auto options =
         torch::TensorOptions().dtype(torch::kInt32).device(cu_seqlens.device());
     at::Tensor padding_offsets =
         torch::empty({tot_num_tokens}, options);
+    QSRV_LAUNCH_BEGIN_LIGHT("fused_attention", "computePaddingOffsets",
+                        dim3(batch_size,1,1), dim3(256,1,1), /*smem*/0);
+    QSRV_LAUNCH_END();
     computePaddingOffsets<<<batch_size, 256>>>(
         padding_offsets.data_ptr<int>(), cu_seqlens.data_ptr<int>(),
         max_seqlen);

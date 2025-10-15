@@ -4,6 +4,8 @@
 #include "dispatch_utils.h"
 #include "utils.cuh"
 #include "reduction_utils.cuh"
+#include "qsrv_trace.h"
+#include "call_logger.h"
 
 namespace vllm {
 
@@ -86,10 +88,19 @@ void silu_and_mul(
   torch::Tensor& input)    // [..., 2 * d]
 {
   int64_t num_tokens = input.numel() / input.size(-1);
+  QSRV_TRACE_HIT("activation", "silu_and_mul");
+  QSRV_CALL_BEGIN("activation", "silu_and_mul");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_ARG_I("num_tokens", num_tokens);
+  QSRV_CALL_END();
   int d = input.size(-1) / 2;
   dim3 grid(num_tokens);
   dim3 block(std::min(d, 1024));
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  QSRV_LAUNCH_BEGIN("activation", "silu_and_mul_kernel",
+                    grid, block, /*smem*/0, stream);
+  QSRV_LAUNCH_END();
   VLLM_DISPATCH_FLOATING_TYPES(input.scalar_type(), "silu_and_mul_kernel", [&] {
     vllm::silu_and_mul_kernel<scalar_t><<<grid, block, 0, stream>>>(
         out.data_ptr<scalar_t>(), input.data_ptr<scalar_t>(), d);
@@ -101,10 +112,19 @@ void invoke_dequant_silu_and_mul_quant(
     torch::Tensor &input, // [..., 2 * d]
     const float scale_gate, const float scale_up, const float scale_out) {
   int64_t num_tokens = input.numel() / input.size(-1);
+  QSRV_TRACE_HIT("activation", "invoke_dequant_silu_and_mul_quant");
+  QSRV_CALL_BEGIN("activation", "invoke_dequant_silu_and_mul_quant");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_ARG_I("num_tokens", num_tokens);
+  QSRV_CALL_END();
   int d = input.size(-1) / 2;
   dim3 grid(num_tokens);
   dim3 block(std::min(d, 1024));
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  QSRV_LAUNCH_BEGIN("activation", "dequant_silu_and_mul_quant_kernel",
+                    grid, block, /*smem*/0, stream);
+  QSRV_LAUNCH_END();
   vllm::dequant_silu_and_mul_quant_kernel<float, false><<<grid, block, 0, stream>>>(
       out.data_ptr<int8_t>(), input.data_ptr<int32_t>(), d, scale_gate,
       scale_up, scale_out);
@@ -119,10 +139,19 @@ void invoke_dequant_silu_and_mul_quant(
     torch::Tensor &tmp // [..., d]
 ) {
   int64_t num_tokens = input.numel() / input.size(-1);
+  QSRV_TRACE_HIT("activation", "invoke_dequant_silu_and_mul_quant_v2");
+  QSRV_CALL_BEGIN("activation", "invoke_dequant_silu_and_mul_quant_v2");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_ARG_I("num_tokens", num_tokens);
+  QSRV_CALL_END();
   int d = input.size(-1) / 2;
   dim3 grid(num_tokens);
   dim3 block(std::min(d, 1024));
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  QSRV_LAUNCH_BEGIN("activation", "dequant_silu_and_mul_quant_kernel",
+                    grid, block, /*smem*/0, stream);
+  QSRV_LAUNCH_END();
   vllm::dequant_silu_and_mul_quant_kernel<float*, true><<<grid, block, 0, stream>>>(
       out.data_ptr<int8_t>(), input.data_ptr<int32_t>(),
        d, scale_gate, scale_up, scale_out.data_ptr<float>(), tmp.data_ptr<float>());
@@ -152,6 +181,9 @@ __global__ void activation_kernel(
   dim3 grid(num_tokens);                                                                  \
   dim3 block(std::min(d, 1024));                                                          \
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();                           \
+  QSRV_LAUNCH_BEGIN("activation", "lambda kernel",                                        \
+                    grid, block, /*smem*/0, stream);                                      \
+  QSRV_LAUNCH_END();                                                                      \
   VLLM_DISPATCH_FLOATING_TYPES(                                                           \
     input.scalar_type(),                                                                  \
     "activation_kernel",                                                                  \
@@ -184,6 +216,11 @@ void gelu_new(
   torch::Tensor& out,     // [..., d]
   torch::Tensor& input)   // [..., d]
 {
+  QSRV_TRACE_HIT("activation", "gelu_new");
+  QSRV_CALL_BEGIN("activation", "gelu_new");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_CALL_END();
   LAUNCH_ACTIVATION_KERNEL(vllm::gelu_new_kernel);
 }
 
@@ -192,5 +229,10 @@ void gelu_fast(
   torch::Tensor& out,     // [..., d]
   torch::Tensor& input)   // [..., d]
 {
+  QSRV_TRACE_HIT("activation", "gelu_fast");
+  QSRV_CALL_BEGIN("activation", "gelu_fast");
+  QSRV_ARG_TENSOR("out", out);
+  QSRV_ARG_TENSOR("input", input);
+  QSRV_CALL_END();
   LAUNCH_ACTIVATION_KERNEL(vllm::gelu_fast_kernel);
 }

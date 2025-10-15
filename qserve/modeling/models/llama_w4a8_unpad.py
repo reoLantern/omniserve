@@ -46,6 +46,7 @@ from qserve.utils.weight_utils import (
     load_padded_tensor_parallel_vocab,
     load_tensor_parallel_weights,
 )
+from qserve.utils.stage_trace import span, emit
 
 max_seq_len = qserve.utils.constants.max_seq_len
 
@@ -229,6 +230,7 @@ class LlamaAttention(nn.Module):
             k = k.reshape(k.size(0), self.num_kv_heads, self.head_dim)
             v = v.reshape(v.size(0), self.num_kv_heads, self.head_dim)
 
+            emit({"event": "flash_attn_varlen_func called (llama_w4a8_unpad.py)"})
             attn_output = flash_attn_varlen_func(
                 q,
                 k,
@@ -403,6 +405,7 @@ class LlamaModel(nn.Module):
             else:
                 hidden_states = inputs_embeds
             for i in range(len(self.layers)):
+                emit({"event": "executing layer", "layer": i})
                 layer = self.layers[i]
                 hidden_states = layer(hidden_states, input_metadata)
             hidden_states = self.norm(hidden_states)

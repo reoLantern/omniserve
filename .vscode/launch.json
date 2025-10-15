@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug qserve_benchmark (scripts/launch_qsrv.py)",
+      "type": "debugpy",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/scripts/launch_qsrv.py",
+      "console": "integratedTerminal",
+
+      "args": [
+        "--prompt-len", "512",
+        "--decode-len", "64",
+        "--global-batch-size", "8",
+        "--json-prefix", "debug",
+        "--precision", "w4a8kv4",
+        "--group-size", "128",
+        "--dump-dir", "${workspaceFolder}/dump",
+      ],
+
+      "justMyCode": true
+    }
+  ]
+}

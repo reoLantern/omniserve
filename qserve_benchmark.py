@@ -52,6 +52,7 @@ def process_requests(
 
     while engine.has_unfinished_requests():
         ### Schedule iteration 1 (context stage)
+        print("Iteration:", iter)
         requests_outputs = engine.step()
         num_tokens += len(requests_outputs)
         # torch.cuda.synchronize()
@@ -77,9 +78,9 @@ def main(args: argparse.Namespace):
     """Main function that sets up and runs the prompt processing."""
 
     batch_size = int(os.environ.get("GLOBAL_BATCH_SIZE"))
-    prompt_len = 1024
-    generation_len = 512
-    rounds = 3
+    prompt_len = args.prompt_len
+    generation_len = args.generation_len
+    rounds = 1
 
     with open("results.csv", "a") as file:
         print("=" * 50, file=file)
@@ -124,5 +125,9 @@ if __name__ == "__main__":
         description="Demo on using the LLMEngine class directly"
     )
     parser = EngineArgs.add_cli_args(parser)
+    parser.add_argument("--prompt-len", type=int, default=1024,
+                        help="Prefill length per sequence used by the benchmark workload.")
+    parser.add_argument("--generation-len", type=int, default=512,
+                        help="Max new tokens per sequence (decode steps + 1) used by the benchmark.")
     args = parser.parse_args()
     main(args)
