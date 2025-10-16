@@ -672,13 +672,28 @@ class ModelRunner:
 
         model = self.model
 
+        _use_random_env = os.getenv("USE_RANDOM_TOKENS")
+        USE_RANDOM_TOKENS = (_use_random_env is not None and _use_random_env != "0")
+
         with span("prefill" if is_prefill else "decode", meta):
             output = model(input_tokens, input_metadata)
-            emit({"event": "sample_begin", **meta})
-            if self.run_vlm:
-                tokens = model.llm.sample(input_tokens, output, input_metadata)
+
+            if not USE_RANDOM_TOKENS:
+                emit({"event": "sample_begin", **meta})
+                if self.run_vlm:
+                    tokens = model.llm.sample(input_tokens, output, input_metadata)
+                else:
+                    tokens = model.sample(input_tokens, output, input_metadata)
+                emit({"event": "sample_end", **meta})
             else:
-                tokens = model.sample(input_tokens, output, input_metadata)
-            emit({"event": "sample_end", **meta})
+                # due to error of original code, we just generate random tokens here
+                batch_size  = output.shape[0]
+                vocab_size  = output.shape[-1]
+                tokens = torch.randint(
+                    low=0, high=vocab_size,
+                    size=(batch_size,),
+                    device=output.device,
+                    dtype=torch.long,
+                )
 
         return tokens

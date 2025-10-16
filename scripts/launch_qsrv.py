@@ -50,7 +50,7 @@ num_gpu_page_blocks = args.global_batch_size * ((tokens_total + 63) // 64 + 1)
 
 # ==== dump file name ====
 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-dump_file = dump_dir / f"{args.json_prefix}_{args.prompt_len}p_{args.decode_len}d_bs{args.global_batch_size}_{model_path.name}_{ts}.jsonl"
+dump_file = dump_dir / f"{args.json_prefix}_{args.prompt_len}p_{args.decode_len}d_group{args.group_size}_bs{args.global_batch_size}_{model_path.name}_{ts}.jsonl"
 
 # ==== 导出供底层使用的环境变量 ====
 os.environ["QSRV_ENABLE_CALL_LOGGER"] = str(args.enable_call_logger)

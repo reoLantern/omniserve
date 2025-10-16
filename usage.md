@@ -32,6 +32,7 @@ git lfs install
 GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/mit-han-lab/Llama-3-8B-Instruct-QServe
 GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/mit-han-lab/Llama-3-8B-QServe
 GIT_LFS_SKIP_SMUDGE=1 git clone https://www.modelscope.cn/mit-han-lab/Llama-3-8B-Instruct-QServe-g128
+GIT_LFS_SKIP_SMUDGE=1 git clone https://www.modelscope.cn/mit-han-lab/Llama-3-8B-QServe
 cd Llama-3-8B-Instruct-QServe
 git lfs pull
 ```
@@ -41,4 +42,11 @@ git lfs pull
 ```bash
 cd omniserve  # 回到 omniserve 根目录
 bash scripts/qserve_benchmark.sh
+```
+
+裁剪 dump 输出：
+
+```bash
+python3 ./dump/qserve_dump_filter.py ./dump/kernel_calls_1024p_16d_group128_bs4_Llama-3-8B_20251015_222924.jsonl --step 4
+python3 ./dump/qserve_dump_filter.py ./dump/kernel_calls_1024p_512d_group-1_bs32_Llama-3-8B_20251015_225451.jsonl --step 50
 ```

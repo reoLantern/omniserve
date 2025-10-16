@@ -389,6 +389,7 @@ class LLMEngine:
                 .numpy()
                 .tolist()
             )
+            # prompt_token_ids = [0] * int(prompt_len)
             if self.run_vlm:
                 prompt_token_ids[0: self.img_per_seq] = [qserve.utils.constants.LLAVA_DEFAULT_IMAGE_TOKEN_IDX,] * self.img_per_seq
             sampling_params = copy.deepcopy(sampling_params)

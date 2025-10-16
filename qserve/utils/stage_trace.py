@@ -1,9 +1,11 @@
 import json, os, time, threading, sys
 
-_path = os.environ.get("QSRV_DUMP_KERNEL_FILE",
-                       "~/work/omniserve/dump/kernel_calls.jsonl")
+_path = os.environ.get("QSRV_DUMP_KERNEL_FILE")
 _lock = threading.Lock()
-_enabled = os.environ.get("QSRV_TRACE_STAGES", "1") != "0"
+_enabled = os.environ.get("QSRV_ENABLE_CALL_LOGGER") == "1"
+if _enabled and not _path:
+    sys.stderr.write("[trace] QSRV_ENABLE_CALL_LOGGER=1 but no QSRV_DUMP_KERNEL_FILE is specified; we disable stage_trace\n")
+    _enabled = False
 
 def emit(event: dict):
     if not _enabled: 

@@ -15,11 +15,13 @@
         "--global-batch-size", "8",
         "--json-prefix", "debug",
         "--precision", "w4a8kv4",
-        "--group-size", "128",
+        "--group-size", "-1",
         "--dump-dir", "${workspaceFolder}/dump",
+        "--model-path", "${workspaceFolder}/qserve_checkpoints/Llama-3-8B-QServe",
+        "--quant-path", "${workspaceFolder}/qserve_checkpoints/Llama-3-8B-QServe",
       ],
 
-      "justMyCode": true
+      "justMyCode": false
     }
   ]
 }
