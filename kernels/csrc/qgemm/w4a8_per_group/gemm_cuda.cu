@@ -682,10 +682,10 @@ void gemm_forward_cuda(torch::Tensor _in_feats,
   QSRV_ARG_TENSOR("_wscales",      _wscales);
   QSRV_ARG_TENSOR("_ascales",      _ascales);
   QSRV_ARG_TENSOR("_out_feats",    _out_feats);
-  QSRV_ARG_I("num_in_feats",          num_in_feats);
-  QSRV_ARG_I("num_in_channels",          num_in_channels);
-  QSRV_ARG_I("num_out_feats",          num_out_feats);
-  QSRV_ARG_I("num_out_channels",          num_out_channels);
+  QSRV_ARG_I("num_in_feats",          num_in_feats);         // M
+  QSRV_ARG_I("num_in_channels",          num_in_channels);   // K
+  QSRV_ARG_I("num_out_feats",          num_out_feats);       // M
+  QSRV_ARG_I("num_out_channels",          num_out_channels); // N
   QSRV_CALL_END();
 
   constexpr int G = 128;

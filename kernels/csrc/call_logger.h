@@ -160,7 +160,7 @@ struct Event {
     if (!active) return;
     buf.reserve(1024);
     buf += "{";
-    // addK("ts_us", (int64_t)now_us());
+    addK("ts_us", (int64_t)now_us());
     // addK("pid",  (int64_t)pid());
     // addK("tid",  (int64_t)tid());
     addK("kind", kind);
